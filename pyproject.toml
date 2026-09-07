@@ -1,0 +1,43 @@
+[project]
+name = "foundry-implementation-actor"
+version = "0.1.0"
+description = "Runs a headless Claude Code implementation session against one capability's own repo — a papeete-actor for one use, with the capability supplied by a sidecar."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "Papeete Consulting", email = "yoann.remy@outlook.com" }]
+license = "MIT"
+keywords = ["actor-model", "claude-code", "agentic", "capability", "papeete"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3.11",
+  "Topic :: Software Development :: Code Generators",
+]
+# Deliberately NOT here: `anthropic` (this package shells out to the `claude` CLI rather than the
+# raw SDK — see engine.py's docstring for why), and every knowledge tool. A `ground_in` entry
+# names its own `fetch:` argv, so the tools a capability grounds itself in are the CONSUMER's
+# dependencies, declared where the sidecar that names them lives.
+dependencies = [
+  "papeete-actor-synchronous-messaging>=0.2.1",
+  "papeete-version>=0.1.0",
+  "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+foundry-implementation-actor = "foundry_implementation_actor.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/papeete-hub/foundry-implementation-actor"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/foundry_implementation_actor"]

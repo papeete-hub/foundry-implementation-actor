@@ -1,0 +1,143 @@
+# agentic-context.schema.yaml — the foundry-implementation-actor/agentic-context contract.
+#
+# WHAT THIS FILE IS FOR. One capability's own declaration of what a non-deterministic door should
+# ground itself in, where it may write, and what it publishes. The machinery in this package
+# carries no capability literal of its own — every identifier it needs is DERIVED from `capability`
+# and `source_repo` below (see `config.py`), so a second capability instantiates the same actor by
+# writing this file and nothing else.
+#
+# THE CONTRACT IS COMMITTED SOURCE, NOT A FETCHED GATE. It lives inside the package, the same path
+# in a source checkout and in an installed wheel, so `foundry-implementation-actor lint` needs no
+# network and no credential. Same discipline as papeete-actor's own manifest schema.
+#
+# ─── WHY A SIDECAR AND NOT THE CARD ───────────────────────────────────────────────────────────
+# `papeete_actor_synchronous_messaging.card` opens exactly four hardcoded filenames and never
+# globs, so `Actor.from_card()` will never see this file. That is deliberate: this is the actor's
+# own operational configuration, not part of any published card contract, and it is loaded by this
+# package's `config.py` directly.
+#
+# ─── WHY `writes_only_under` IS NOT DECLARED HERE ─────────────────────────────────────────────
+# It used to be, beside `components:`, and the two drifted — the sidecar declared one list while
+# the file that actually ENFORCES containment carried its own hardcoded copy. There is now exactly
+# one source: `components[].path`. A boundary that can be stated twice will eventually be stated
+# differently.
+
+contract: foundry-implementation-actor/agentic-context/v1
+
+kind: agentic-context
+
+location: actor-agentic-context.yaml    # at the actor's folder root, beside actor.yaml
+
+required:
+  - context
+  - engine
+  - capability
+  - source_repo
+  - registry_repo
+  - components
+  - ground_in
+
+fields:
+
+  context:
+    type: string
+    const: foundry-implementation-actor/agentic-context/v1
+    doc: >-
+      The contract this file claims. A file declaring some other value is read, warned, and not
+      checked further — UNMIGRATED is not the same as non-conformant, and migration is each
+      pair's own act.
+
+  engine:
+    type: string
+    doc: >-
+      The engine name this actor's non-deterministic door names on its card. Registered under
+      exactly this key in `Actor.from_card(engines={...})`.
+
+  capability:
+    type: string
+    doc: >-
+      The capability id, in its canonical dotted form with the `CAP` segment present — e.g.
+      `<ENT>.<DOMAIN>.CAP.<TYPE>.<NNN>.<CODE>`. Every other rendering of the id is derived from
+      this one; none is declared. See `config.py` for the full table.
+
+  source_repo:
+    type: string
+    doc: >-
+      `<owner>/<repo>` of the repository this actor clones, writes to, and pushes a branch to.
+      The actor's own name and its git commit identity are derived from the repo half.
+
+  registry_repo:
+    type: string
+    doc: >-
+      `<owner>/<repo>` of the knowledge registry the `ground_in` fetches resolve through. There is
+      NO default: a fetch that silently reaches a fallback registry is worse than one that fails.
+
+  components:
+    type: array
+    doc: >-
+      The units this actor may write to and publish. Each entry declares its own boundary, its own
+      test suite, and its own Dockerfile context — the three things that were hardcoded, in three
+      different files, before this contract existed.
+    items:
+      required: [name, path, tests, dockerfile]
+      fields:
+        name:
+          type: string
+          doc: The component's own name. Appears in the published image ref.
+        path:
+          type: string
+          doc: >-
+            Its root inside the repo, trailing slash included. The union of these IS the write
+            boundary — nothing else declares it. May be more than one segment deep; the
+            component a staged path belongs to is resolved by longest prefix, not by taking
+            the path's first segment.
+        tests:
+          type: string
+          doc: >-
+            The component's own test suite, named in the session's prompt so the instruction to
+            iterate it green is not a hardcoded literal in an f-string.
+        dockerfile:
+          type: string
+          doc: >-
+            The directory holding this component's Dockerfile, as `buildctl --local dockerfile=`
+            takes it. Must exist in the clone, or publishing this component fails late, after a
+            commit and a push have already landed.
+
+  ground_in:
+    type: array
+    doc: >-
+      What the session is grounded in, before its first turn. Each entry is a command to run and a
+      place to put its output inside the clone — this package hardcodes no knowledge tool. A
+      fourth knowledge source is an entry here, not a change to this package.
+    items:
+      required: [name, answers, fetch, into, load]
+      fields:
+        name:
+          type: string
+          doc: Short identifier for the source. Titles its section in the rendered Markdown.
+        answers:
+          type: string
+          doc: >-
+            One line saying what question this source answers. It is not decoration: for an
+            on-demand entry it is the ONLY thing the session sees, and what it decides to read
+            the file on.
+        fetch:
+          type: array
+          doc: >-
+            argv to run, as a list. `{capability}`, `{registry_repo}` and `{source_repo}` are
+            substituted from the fields above. Non-zero exit, a missing binary, or a timeout all
+            fail the request before any session time is spent.
+        into:
+          type: string
+          doc: >-
+            Repo-relative path to write the envelope to, INSIDE the clone. Inside, because a
+            CLAUDE.md `@`-import resolves relative to the file that contains it — an envelope in
+            a sibling tempdir cannot be imported, only described.
+        load:
+          type: string
+          enum: [eager, on-demand]
+          doc: >-
+            `eager` is `@`-imported by the generated CLAUDE.md and enters the window before turn
+            one, unconditionally, every session. `on-demand` is listed by its `answers` line and
+            its path, and costs nothing until the session opens it. Choose from a measurement of
+            the envelope, not from taste.

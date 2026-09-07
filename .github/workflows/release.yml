@@ -1,0 +1,40 @@
+name: release
+on:
+  push:
+    tags: ["v*"]
+
+# PyPI Trusted Publishing (OIDC) — no token is stored anywhere. The one-time setup is a pending
+# publisher on pypi.org naming this repo and this workflow; after the first release it becomes a
+# normal publisher. See README.
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+
+      - name: build
+        # No fetch step and no external token: the contract is committed here. A release depends
+        # on nothing but this checkout and PyPI.
+        run: uv build
+
+      - name: the wheel must carry its contract
+        run: |
+          uv venv /tmp/probe
+          uv pip install --python /tmp/probe/bin/python -q dist/*.whl
+          /tmp/probe/bin/foundry-implementation-actor lint tests/fixtures/valid
+
+      - name: grounding renders a CLAUDE.md whose imports resolve
+        # BEFORE the upload, not after. A wheel that ships without its schema, or whose grounding
+        # emits an @-import to a file it never wrote, produces sessions grounded in nothing that
+        # look identical to correct ones. That is not something to discover from a published
+        # version.
+        run: /tmp/probe/bin/python scripts/probe_grounding.py tests/fixtures/valid
+
+      - name: publish to PyPI
+        run: uv publish --trusted-publishing always

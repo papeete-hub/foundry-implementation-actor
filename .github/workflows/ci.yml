@@ -1,0 +1,48 @@
+name: ci
+on: [push, pull_request]
+
+# NO CREDENTIAL. This pipeline reaches nothing outside its own checkout — no registry, no lab
+# repo, no PyPI. Everything it asserts, it asserts from source and from a wheel it built itself.
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+
+      - name: the test suite
+        run: uv run --extra dev pytest -q
+
+      - name: build
+        run: uv build
+
+      # ── the two gates a contract-shipping package runs against its own artifact ────────────
+      #
+      # The suite above proves the code works in a source checkout. Neither of these does — they
+      # prove the WHEEL works, which is a different claim and the one a consumer actually depends
+      # on. A schema left out of the build passes every test in tests/ and fails here.
+
+      - name: the wheel must carry its contract
+        run: |
+          uv venv /tmp/probe
+          uv pip install --python /tmp/probe/bin/python -q dist/*.whl
+          /tmp/probe/bin/foundry-implementation-actor lint tests/fixtures/valid
+          /tmp/probe/bin/foundry-implementation-actor show tests/fixtures/valid \
+            --registry reg.example.com | tee /tmp/show.txt
+          grep -q 'reg.example.com/acme.parts/sup.007.wid/backend:<version>' /tmp/show.txt
+
+      - name: the gate must run
+        # A gate that cannot fail is not a gate. Lint a deliberately non-conformant sidecar with
+        # the INSTALLED wheel and require a non-zero exit.
+        run: |
+          if /tmp/probe/bin/foundry-implementation-actor lint tests/fixtures/broken; then
+            echo "::error::lint accepted a non-conformant sidecar — the gate is not running"
+            exit 1
+          fi
+          echo "the gate refused a non-conformant sidecar, as it should"
+
+      - name: grounding renders a CLAUDE.md whose imports resolve
+        # The property the whole design rests on: an @-import naming a file that is not there is a
+        # session grounded in nothing, and it looks identical to one grounded correctly.
+        run: /tmp/probe/bin/python scripts/probe_grounding.py tests/fixtures/valid

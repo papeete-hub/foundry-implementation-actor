@@ -1,0 +1,14 @@
+# Deliberately non-conformant: `components` is missing entirely, and one ground_in entry names an
+# unknown load tier. CI lints this and asserts the gate FAILS — a gate that cannot fail is not a
+# gate, and a wheel whose lint silently passes everything would be worse than no lint at all.
+context: foundry-implementation-actor/agentic-context/v1
+engine: claude-code
+capability: ACME.PARTS.CAP.SUP.007.WID
+source_repo: acme-lab/ACME.PARTS.CAP.SUP.007.WID-implementation
+registry_repo: acme-lab/acme-governance
+ground_in:
+  - name: business
+    answers: the WHAT/WHY
+    fetch: [printf, 'x']
+    into: .foundry/business.md
+    load: whenever
