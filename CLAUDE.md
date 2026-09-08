@@ -29,7 +29,7 @@ There is no separate lint/format command configured in this repo.
 
 ## Architecture
 
-Six modules under `src/foundry_implementation_actor/`:
+Seven modules under `src/foundry_implementation_actor/`:
 
 - **`config.py`** — `CapabilityConfig`. The heart. Loads the sidecar and derives **every**
   rendering of the capability id from two declared fields (`capability`, `source_repo`). Also
@@ -44,6 +44,10 @@ Six modules under `src/foundry_implementation_actor/`:
   opens a pull request.
 - **`correlation.py`** — the two ids and the step vocabulary. Moved **verbatim** from the repo this
   was extracted from; its code below the docstring is byte-identical.
+- **`conformance.py`** — `check(folder)`. Compares a use's cards against the definition's, on
+  the derived wire contract only (door ids, each door's request/completion schema and engine).
+  Prose and `actor.yaml`'s `name:` are deliberately not compared — a use should name its own
+  capability. `lint` runs it beside the sidecar gate.
 - **`cli.py`** — argparse wiring only, no logic of its own.
 
 Beside them, two folders of committed contract, both shipped in the wheel:
@@ -56,6 +60,10 @@ Beside them, two folders of committed contract, both shipped in the wheel:
 
 ## Core invariants that any change must preserve
 
+- **A use's cards are a hand copy, and hand copies drift.** Both folders pass `lint-card`
+  independently, and neither gate looks at the other — so a definition that gains a field leaves
+  every un-updated use linting green and refusing callers at runtime. `conformance.check` is the
+  only thing that catches it. Compare the DERIVED contract, never the prose.
 - **The `-actor` suffix is a claim, and it is checked.** `ADR-ECO-0022`: a package ending in
   `-actor` asserts a `papeete-actor` underneath, and one that ships no conformant card is
   misnamed. `tests/test_cards.py` runs `lint-card` on `cards/` in the suite; CI and the release

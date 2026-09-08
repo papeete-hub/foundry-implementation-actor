@@ -1,0 +1,38 @@
+# WHAT DATA EXISTS. `papeete-actor-data/v0`, owned by `papeete-actor-message` — a named, minimally
+# typed dictionary. Every field here belongs to the ACTOR, not to any capability: a task id, the
+# caller's statement of the task, and what came back. Nothing names a capability, a component or a
+# knowledge tool, because none of those are known until a sidecar supplies them.
+data: papeete-actor-data/v0
+items:
+  - name: task_id
+    type: string
+    description: the TASK-NNN card id this actor was asked about (e.g. "TASK-009")
+  - name: title
+    type: string
+    description: the task's short title/summary, supplied by the caller — no card lookup is performed here
+  - name: context
+    type: string
+    description: free-text elaboration beyond the title — background, constraints, links; optional
+  - name: definition_of_done
+    type: list
+    description: the acceptance criteria this task must satisfy, as the caller states them
+  - name: remediation_context
+    type: string
+    description: >-
+      on a retry, the prior attempt's failing test criteria — what the implementing session should
+      fix this time; optional, absent on a first attempt
+  - name: accepted
+    type: boolean
+    description: whether the implement-task request was accepted, pushed, and its images published
+  - name: because
+    type: string
+    description: why a request was refused (containment violation, nothing staged, ...)
+  - name: branch
+    type: string
+    description: the branch the implementation was pushed to (impl/TASK-NNN)
+  - name: images
+    type: list
+    description: >-
+      the full name:version ref of each touched component's published image (e.g.
+      "acme.parts.cap.sup.007.wid-backend:0.1.0-TASK-011-a1b2c3d"), by convention — no other actor
+      is ever told these tags explicitly

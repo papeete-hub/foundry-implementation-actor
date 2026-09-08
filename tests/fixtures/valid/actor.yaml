@@ -1,0 +1,8 @@
+# A USE's identity card. The other three are copied verbatim from the definition this package
+# ships, which is exactly what `conformance.check` asserts — only this file is a use's own, and
+# only its `name:` and `description:` may differ.
+manifest: papeete-actor-manifest/v0
+name: ACME.PARTS.CAP.SUP.007.WID-implementation
+description: >-
+  Implements TASK-NNN cards for the fictional capability ACME.PARTS.CAP.SUP.007.WID. Exists so the
+  gates that run against the installed wheel have a complete use to check, not a sidecar alone.

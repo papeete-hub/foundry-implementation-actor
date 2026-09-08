@@ -22,7 +22,7 @@ from .config import (CapabilityConfig, Component, ConfigError, Grounding, Report
                      cards_path, lint)
 from .engine import ClaudeCodeEngine
 from .handler import HandlerError, make_implement_task
-from . import correlation, grounding
+from . import conformance, correlation, grounding
 
 __all__ = [
     "CapabilityConfig",
@@ -33,6 +33,7 @@ __all__ = [
     "HandlerError",
     "Report",
     "cards_path",
+    "conformance",
     "correlation",
     "grounding",
     "lint",

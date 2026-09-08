@@ -1,0 +1,119 @@
+"""Does this use still answer the same doors as the actor it claims to be?
+
+WHY THIS EXISTS. This package ships the actor's DEFINITION — four cards under `cards/` saying what
+a foundry implementation actor is. A USE is one capability's own folder, carrying its own copy of
+those four, named for the capability it serves. The copy is made by hand, because a use is a static
+repository today rather than something spawned from a capability id.
+
+A hand copy drifts. Both folders pass `lint-card` independently — each is a conformant actor — and
+neither gate has any opinion about the other. So the day the definition gains a field, renames a
+message, or changes a door's completion set, a use that was not updated keeps linting green and
+starts refusing callers at runtime, with the rejection surfacing at the door rather than here.
+
+WHAT IS COMPARED, AND WHAT IS NOT. Only what a caller can observe: the set of doors, and for each
+one its derived `request_schema`, its `completion_schema`, and the `engine` key it resolves
+through. Those derivations already fold in the data dictionary and the message catalog — a renamed
+data item, a changed type, a reference added to a message, all of it lands in the schema a caller is
+validated against — so comparing them separately would be comparing the same fact twice.
+
+PROSE IS NOT COMPARED, ON PURPOSE. A use's `means:` should name its real capability and its real
+peer actors; the definition's cannot, because it serves no capability and its cards are grepped for
+exactly such literals. The use's wording is the better one for anyone reading `describe`, and
+flattening it to the definition's would delete information. Nor is `actor.yaml`'s `name:`: that is
+the use's own identity, and it is REQUIRED to differ.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+
+from papeete_actor_synchronous_messaging import card as pas_card
+
+from .config import Report, cards_path
+
+CARD_FILES = ("actor.yaml", "actor-data.yaml", "actor-message.yaml",
+              "actor-synchronous-messaging.yaml")
+
+
+def check(folder: str | Path = ".") -> Report:
+    """Compare one use's cards against the definition this package ships."""
+    use = Path(folder)
+    report = Report(oks=[], warns=[], errors=[])
+
+    present = [name for name in CARD_FILES if (use / name).exists()]
+    if not present:
+        # Not an error. `lint` is also run against a sidecar on its own — in this package's own CI,
+        # among other places — and a folder with no cards is not a malformed use, just not a
+        # complete one.
+        report.warns.append(
+            f"{use}: no cards here, so nothing to compare — a use carries its own copy of the "
+            f"actor's four cards beside its sidecar"
+        )
+        return report
+    if len(present) != len(CARD_FILES):
+        missing = [name for name in CARD_FILES if name not in present]
+        report.errors.append(
+            f"{use}: an incomplete card set — missing {', '.join(missing)}. `Actor.from_card` "
+            f"opens exactly these four and never globs, so a use missing one does not boot."
+        )
+        return report
+
+    definition = cards_path()
+    if any(not (definition / name).exists() for name in CARD_FILES):
+        # A wheel that lost its cards. `lint-card` in CI and in the release workflow exists to stop
+        # that reaching PyPI; this turns the leftover case into a report rather than a traceback
+        # from inside a gate a consumer is running.
+        report.errors.append(
+            f"{definition}: this package's own cards are missing, so there is nothing to compare "
+            f"against. The build shipped without them — report it against the release."
+        )
+        return report
+
+    try:
+        theirs = pas_card.load(use)
+    except ValueError as e:
+        report.errors.append(f"{use}: its own cards do not pass the restriction, so they cannot "
+                             f"be compared: {e}")
+        return report
+    ours = pas_card.load(definition)
+
+    report.errors.extend(_compare(ours, theirs, "actions", use))
+    report.errors.extend(_compare(ours, theirs, "queries", use))
+    if not report.errors:
+        doors = ", ".join(sorted(theirs.actions) + sorted(theirs.queries))
+        report.oks.append(f"{use} answers the definition's doors, unchanged: {doors}")
+    return report
+
+
+def _compare(ours, theirs, kind: str, use: Path) -> list[str]:
+    """The differences in one door family, as messages. Empty means they agree."""
+    defined, used = getattr(ours, kind), getattr(theirs, kind)
+    errors = []
+
+    for extra in sorted(set(used) - set(defined)):
+        errors.append(f"{use}: {kind[:-1]} '{extra}' is not a door the definition declares — a use "
+                      f"answers the actor's doors, it does not add its own")
+    for absent in sorted(set(defined) - set(used)):
+        errors.append(f"{use}: {kind[:-1]} '{absent}' is missing — the definition declares it, so a "
+                      f"caller addressing this actor may send it")
+
+    for door in sorted(set(defined) & set(used)):
+        mine, yours = defined[door], used[door]
+        if mine.request_schema != yours.request_schema:
+            errors.append(
+                f"{use}: {kind[:-1]} '{door}' accepts a different payload than the definition. "
+                f"Its `door_schema` message and the data items that message references are what "
+                f"derive this, so one of the two drifted:\n"
+                f"      definition {mine.request_schema}\n"
+                f"      this use   {yours.request_schema}")
+        if mine.completion_schema != yours.completion_schema:
+            errors.append(
+                f"{use}: {kind[:-1]} '{door}' replies against a different completion set than the "
+                f"definition:\n"
+                f"      definition {mine.completion_schema}\n"
+                f"      this use   {yours.completion_schema}")
+        if mine.engine != yours.engine:
+            errors.append(
+                f"{use}: {kind[:-1]} '{door}' resolves through engine '{yours.engine}', the "
+                f"definition through '{mine.engine}' — the entrypoint registers the engine under "
+                f"the sidecar's `engine:` key, so these three must agree")
+    return errors

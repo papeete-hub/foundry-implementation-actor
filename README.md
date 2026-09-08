@@ -77,6 +77,16 @@ papeete-actor-synchronous-messaging lint-card \
   "$(python -c 'from foundry_implementation_actor import cards_path; print(cards_path())')"
 ```
 
+A use's copy is made by hand, so it can drift: both folders pass `lint-card` independently, and
+neither gate has an opinion about the other. `foundry-implementation-actor lint` therefore runs a
+second check — `conformance.check` — comparing the use's cards against the definition's on the
+**derived wire contract**: the set of doors, and each door's `request_schema`, `completion_schema`
+and `engine`. Those derivations already fold in the data dictionary and the message catalog, so a
+renamed item or a changed reference lands in the payload a caller is validated against.
+
+Prose is not compared, on purpose: a use *should* name its real capability and its real peers, and
+`actor.yaml`'s `name:` is its own identity and is required to differ.
+
 Because the cards sit under `src/`, `tests/test_portability.py` greps them too — a capability id or
 a knowledge tool name written into the actor's own definition fails the build exactly as it would
 in the code.

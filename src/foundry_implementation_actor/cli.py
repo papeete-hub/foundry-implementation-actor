@@ -13,13 +13,22 @@ import argparse
 import sys
 from pathlib import Path
 
+from . import conformance
 from .config import CapabilityConfig, ConfigError, lint
 
 _REGISTRY_PLACEHOLDER = "<registry>"
 
 
 def _cmd_lint(args: argparse.Namespace) -> int:
+    # Two gates, one command. The sidecar says which capability this use serves; the cards say
+    # which actor it claims to be. A use can be wrong about either independently, and the second
+    # check is the only thing standing between a hand-copied card set and a caller being refused
+    # at a door — see `conformance.py`.
     report = lint(Path(args.folder))
+    conformance_report = conformance.check(Path(args.folder))
+    report.oks.extend(conformance_report.oks)
+    report.warns.extend(conformance_report.warns)
+    report.errors.extend(conformance_report.errors)
     for warning in report.warns:
         print(f"  ! {warning}")
     for error in report.errors:
@@ -29,7 +38,8 @@ def _cmd_lint(args: argparse.Namespace) -> int:
         return 1
     for line in report.oks:
         print(f"  ok   {line}")
-    print("✓ sidecar conforms")
+    checked_cards = any((Path(args.folder) / name).exists() for name in conformance.CARD_FILES)
+    print("✓ sidecar and cards conform" if checked_cards else "✓ sidecar conforms")
     return 0
 
 

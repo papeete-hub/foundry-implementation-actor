@@ -1,0 +1,17 @@
+# WHAT MESSAGES EXIST. `papeete-actor-message/v1`, owned by `papeete-actor-message` — named
+# messages, each a pure regrouping of references into the data dictionary, under an intent.
+# Wire-agnostic by that package's own design: WHAT a message is, never HOW it is carried.
+message: papeete-actor-message/v1
+messages:
+  - name: implement-task-cmd
+    intent: ask this actor to implement a TASK-NNN card for the capability it serves
+    references: [task_id, title, definition_of_done, context, remediation_context]
+    optional: [context, remediation_context]
+
+  - name: task-implemented-result
+    intent: report that the task was implemented, pushed, and its touched components' images published
+    references: [accepted, branch, images]
+
+  - name: task-refused-result
+    intent: report that the task was not implemented, and why
+    references: [accepted, because]
