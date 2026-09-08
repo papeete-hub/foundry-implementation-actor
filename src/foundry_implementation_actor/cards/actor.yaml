@@ -1,0 +1,19 @@
+# WHO. The actor this package defines — `papeete-actor-manifest/v0`, owned by `papeete-actor`.
+#
+# THIS FOLDER IS THE DEFINITION, NOT A USE. The four cards here say what a foundry implementation
+# actor IS: the data it knows, the messages it exchanges, and the one door it answers. They name no
+# capability, because which capability an instance serves is not part of what the actor is — that
+# is `actor-agentic-context.yaml`, supplied per use.
+#
+# One use of this actor is a folder carrying its own copy of these four cards, named for the
+# capability it serves, beside the sidecar that binds it to that capability's knowledge base. Today
+# that folder is a static repository; the cards here are what a spawned instance would be rendered
+# from once it is not.
+manifest: papeete-actor-manifest/v0
+name: foundry-implementation-actor
+description: >-
+  Implements one TASK-NNN card for the business capability its sidecar names. Clones that
+  capability's own repository into a private copy, grounds the session in the capability's own
+  standing context, and writes only under the components the sidecar declares — then commits,
+  pushes a branch, and publishes one image per component the task actually touched. Never opens a
+  pull request: an orchestrating actor does that, once a testing actor also confirms.

@@ -46,8 +46,20 @@ Six modules under `src/foundry_implementation_actor/`:
   was extracted from; its code below the docstring is byte-identical.
 - **`cli.py`** — argparse wiring only, no logic of its own.
 
+Beside them, two folders of committed contract, both shipped in the wheel:
+
+- **`schemas/agentic-context.schema.yaml`** — the sidecar contract this package owns, which
+  `lint` checks a use against.
+- **`cards/`** — the actor's own four cards: what this actor IS, as opposed to which capability a
+  use of it serves. `cards_path()` returns the folder. They name no capability, and they are what
+  a spawned instance would be rendered from once a use is not a static repository.
+
 ## Core invariants that any change must preserve
 
+- **The `-actor` suffix is a claim, and it is checked.** `ADR-ECO-0022`: a package ending in
+  `-actor` asserts a `papeete-actor` underneath, and one that ships no conformant card is
+  misnamed. `tests/test_cards.py` runs `lint-card` on `cards/` in the suite; CI and the release
+  workflow run it again against the built wheel, so the cards cannot silently stop shipping.
 - **No capability literal, ever.** `tests/test_portability.py` greps `src/` for the originating
   instance's identifiers *and* for any knowledge tool name (`kpack`, `kontract`, …), and fails on
   either. The tools a capability grounds itself in are the consumer's dependencies. A fourth

@@ -1,0 +1,21 @@
+# THE DOORS. `synchronous-messaging-doors/v1` — one non-deterministic door, and no queries.
+#
+# `engine: claude-code` is this actor kind's declared engine. A use's sidecar repeats it in its own
+# `engine:` field, and the entrypoint registers the engine under exactly that key — so a use whose
+# sidecar names a different engine is caught by its own card rather than at the first request.
+manifest: synchronous-messaging-doors/v1
+actions:
+  - id: implement-task
+    means: >-
+      the door for "implement TASK-NNN for the capability I serve". Send it here with the task id,
+      title, definition of done, and (optionally) context and remediation_context — the caller
+      supplies everything, no task card is looked up here. I clone my capability's repository into
+      my own private copy, ground myself in that capability's own standing context, judge how to
+      implement the task (writing only under whichever of my declared components it touches), then
+      commit and push to impl/TASK-NNN, and build each touched component's image in the cluster's
+      shared buildkit and push it to the registry, named and versioned by convention. I never open
+      a pull request — an orchestrating actor does, once a testing actor also confirms.
+    completion: whether I accepted, pushed, and published images (with the branch and image refs), or refused, and why.
+    door_schema: implement-task-cmd
+    completion_schema: [task-implemented-result, task-refused-result]
+    engine: claude-code

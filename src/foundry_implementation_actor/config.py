@@ -45,6 +45,7 @@ CONTRACT = "foundry-implementation-actor/agentic-context/v1"
 SIDECAR = "actor-agentic-context.yaml"
 
 _SCHEMA_PATH = Path(__file__).resolve().parent / "schemas" / "agentic-context.schema.yaml"
+_CARDS_PATH = Path(__file__).resolve().parent / "cards"
 
 # The segment a capability id carries to say "capability". It is dropped from the registry path
 # because the path position already says it — every other token of the id survives, across
@@ -54,6 +55,21 @@ _CAPABILITY_SEGMENT = "cap"
 # What an unsubstituted placeholder looks like: a bare lowercase word in braces, and nothing else.
 # Narrow on purpose — see `CapabilityConfig.expand`.
 _PLACEHOLDER = re.compile(r"\{([a-z_]+)\}")
+
+
+def cards_path() -> Path:
+    """The folder holding this actor's own four cards — its definition, shipped in the wheel.
+
+    The cards say what a foundry implementation actor IS: its data dictionary, its message
+    catalog, and the one door it answers. They name no capability, because which capability an
+    instance serves is not part of what the actor is — that is the sidecar, supplied per use.
+
+    A use is today a static folder carrying its own copy of these four, named for the capability
+    it serves. This path is what a spawned instance would be rendered from once it is not, and it
+    is what `papeete-actor-synchronous-messaging lint-card` is pointed at to check that the
+    `-actor` suffix in this package's name is a claim it actually honours (ADR-ECO-0022).
+    """
+    return _CARDS_PATH
 
 
 def load_schema() -> dict:

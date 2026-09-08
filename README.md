@@ -14,8 +14,8 @@ pip install foundry-implementation-actor
 
 ## What it is
 
-The machinery. It carries **no capability of its own** — the capability it serves arrives in a
-sidecar the consuming repo writes:
+The actor's **definition** — its four cards, and the machinery behind them. It carries **no
+capability of its own**: the capability it serves arrives in a sidecar the consuming repo writes:
 
 ```yaml
 # actor-agentic-context.yaml
@@ -53,6 +53,33 @@ actor = Actor.from_card(".", mailbox=mailbox,
 
 A second capability instantiates the same actor by writing that file. Nothing here is subclassed,
 hooked, or configured with a strategy object — there is one shape, and it is this one.
+
+## The definition, and a use
+
+This package is where the actor is **defined**. `src/foundry_implementation_actor/cards/` holds its
+four cards — who it is, the data it knows, the messages it exchanges, and the one `implement-task`
+door it answers — and they ship in the wheel, reachable as `cards_path()`. They name no capability,
+because which capability an instance serves is not part of what the actor *is*.
+
+A **use** of this actor is one capability's own folder: its own copy of those four cards, named for
+the capability it serves, beside the `actor-agentic-context.yaml` that binds it to that capability's
+repository and knowledge base. Today that folder is a static repository, and the copy is made by
+hand. Once an instance can be spawned from a capability id alone, the cards here are what it would
+be rendered from — which is why they live in the wheel rather than in an `examples/` folder.
+
+The split is what the name asserts. `ADR-ECO-0022` makes the `-actor` suffix an obligation: a
+package ending in `-actor` claims a `papeete-actor` underneath, *"and a `<use>-<tier>-actor` that
+ships no conformant card is misnamed, not merely unusual."* `tests/test_cards.py` runs that check
+in the suite, and CI runs it again against the built wheel:
+
+```bash
+papeete-actor-synchronous-messaging lint-card \
+  "$(python -c 'from foundry_implementation_actor import cards_path; print(cards_path())')"
+```
+
+Because the cards sit under `src/`, `tests/test_portability.py` greps them too — a capability id or
+a knowledge tool name written into the actor's own definition fails the build exactly as it would
+in the code.
 
 ## What one request does
 

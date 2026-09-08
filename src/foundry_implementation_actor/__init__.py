@@ -18,7 +18,8 @@ Wiring one up is four lines:
 `correlation` is exported too — an entrypoint installs its filter on the root logger's handlers
 after configuring observability, so every record the process emits carries this request's ids.
 """
-from .config import CapabilityConfig, Component, ConfigError, Grounding, Report, lint
+from .config import (CapabilityConfig, Component, ConfigError, Grounding, Report,
+                     cards_path, lint)
 from .engine import ClaudeCodeEngine
 from .handler import HandlerError, make_implement_task
 from . import correlation, grounding
@@ -31,6 +32,7 @@ __all__ = [
     "Grounding",
     "HandlerError",
     "Report",
+    "cards_path",
     "correlation",
     "grounding",
     "lint",

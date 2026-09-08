@@ -1,6 +1,6 @@
 [project]
 name = "foundry-implementation-actor"
-version = "0.1.0"
+version = "0.2.0"
 description = "Runs a headless Claude Code implementation session against one capability's own repo — a papeete-actor for one use, with the capability supplied by a sidecar."
 readme = "README.md"
 requires-python = ">=3.11"

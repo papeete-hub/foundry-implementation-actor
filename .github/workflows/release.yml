@@ -29,6 +29,15 @@ jobs:
           uv pip install --python /tmp/probe/bin/python -q dist/*.whl
           /tmp/probe/bin/foundry-implementation-actor lint tests/fixtures/valid
 
+      - name: the wheel must carry the actor's own cards
+        # Same reason as the line above, for the other half of what this package ships. The
+        # `-actor` suffix asserts a papeete-actor underneath (ADR-ECO-0022); a wheel published
+        # without its cards makes the name a claim the artifact cannot honour, and a published
+        # version is not something to discover that from.
+        run: |
+          /tmp/probe/bin/papeete-actor-synchronous-messaging lint-card \
+            "$(/tmp/probe/bin/python -c 'from foundry_implementation_actor import cards_path; print(cards_path())')"
+
       - name: grounding renders a CLAUDE.md whose imports resolve
         # BEFORE the upload, not after. A wheel that ships without its schema, or whose grounding
         # emits an @-import to a file it never wrote, produces sessions grounded in nothing that
