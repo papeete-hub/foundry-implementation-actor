@@ -27,8 +27,8 @@ jobs:
         run: |
           uv venv /tmp/probe
           uv pip install --python /tmp/probe/bin/python -q dist/*.whl
-          /tmp/probe/bin/foundry-implementation-actor lint tests/fixtures/valid
-          /tmp/probe/bin/foundry-implementation-actor show tests/fixtures/valid \
+          /tmp/probe/bin/foundry-implementation-actor lint examples/ACME.PARTS.CAP.SUP.007.WID-implementation
+          /tmp/probe/bin/foundry-implementation-actor show examples/ACME.PARTS.CAP.SUP.007.WID-implementation \
             --registry reg.example.com | tee /tmp/show.txt
           grep -q 'reg.example.com/acme.parts/sup.007.wid/backend:<version>' /tmp/show.txt
 
@@ -55,4 +55,4 @@ jobs:
       - name: grounding renders a CLAUDE.md whose imports resolve
         # The property the whole design rests on: an @-import naming a file that is not there is a
         # session grounded in nothing, and it looks identical to one grounded correctly.
-        run: /tmp/probe/bin/python scripts/probe_grounding.py tests/fixtures/valid
+        run: /tmp/probe/bin/python scripts/probe_grounding.py examples/ACME.PARTS.CAP.SUP.007.WID-implementation

@@ -12,6 +12,10 @@ features *of* the framework (`ADR-ECO-0022`).
 pip install foundry-implementation-actor
 ```
 
+> **New here?** [`examples/`](examples/) walks through a complete, working use of this actor —
+> what the workflow is, what it is for, and how to instantiate one for your own capability. Every
+> command in it runs with no credentials and no network.
+
 ## What it is
 
 The actor's **definition** — its four cards, and the machinery behind them. It carries **no

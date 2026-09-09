@@ -27,7 +27,7 @@ jobs:
         run: |
           uv venv /tmp/probe
           uv pip install --python /tmp/probe/bin/python -q dist/*.whl
-          /tmp/probe/bin/foundry-implementation-actor lint tests/fixtures/valid
+          /tmp/probe/bin/foundry-implementation-actor lint examples/ACME.PARTS.CAP.SUP.007.WID-implementation
 
       - name: the wheel must carry the actor's own cards
         # Same reason as the line above, for the other half of what this package ships. The
@@ -43,7 +43,7 @@ jobs:
         # emits an @-import to a file it never wrote, produces sessions grounded in nothing that
         # look identical to correct ones. That is not something to discover from a published
         # version.
-        run: /tmp/probe/bin/python scripts/probe_grounding.py tests/fixtures/valid
+        run: /tmp/probe/bin/python scripts/probe_grounding.py examples/ACME.PARTS.CAP.SUP.007.WID-implementation
 
       - name: publish to PyPI
         run: uv publish --trusted-publishing always

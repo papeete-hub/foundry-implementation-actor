@@ -13,7 +13,7 @@ import yaml
 
 from foundry_implementation_actor import cards_path, conformance
 
-FIXTURE = "tests/fixtures/valid"
+FIXTURE = "examples/ACME.PARTS.CAP.SUP.007.WID-implementation"
 
 
 def _use(tmp_path, source=None):
