@@ -50,9 +50,13 @@ job does not build twice.
 publishes to GHCR alone and emits a `::notice` saying so. Set-but-broken is a hard failure.
 
 The workflow also gains `workflow_dispatch`, so a version whose wheel is already on PyPI can be
-given an image in a registry it missed without inventing a version number. On a manual run the
-`publish` job is skipped — PyPI refuses a version it already holds — and `latest` is **not** moved
-in either registry, so backfilling an old tag cannot drag it backwards.
+given an image in a registry it missed without inventing a version number. It **takes the tag as an
+input** and is run from the default branch: GitHub takes the workflow file from the ref it is
+dispatched on, and a tag old enough to need a backfill is by definition older than the workflow
+that can perform one — so the checkout takes its content from the named tag while the file comes
+from the branch. On a manual run the `publish` job is skipped — PyPI refuses a version it already
+holds — and `latest` is **not** moved in either registry, so backfilling an old tag cannot drag it
+backwards.
 
 ## Rationale
 

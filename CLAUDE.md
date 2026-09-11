@@ -111,8 +111,10 @@ similar weight rather than only writing it into code comments.
 Tag-triggered (`v*`) via `.github/workflows/release.yml`, publishing to PyPI through Trusted
 Publishing (OIDC) — no stored token. The image goes to GHCR and, when `vars.PRODUCT_IMAGE` names
 one, to a product's own registry as well (ADR-FIA-0006). The workflow also accepts a manual run
-against an existing tag, to give an already-released version an image in a registry it missed;
-that run skips PyPI and does not move `latest`. The release job builds the wheel, installs it into
+that takes a tag as an INPUT — dispatched from the default branch, because the file comes from the
+dispatched ref and a tag needing a backfill predates the workflow that can do it — to give an
+already-released version an image in a registry it missed; that run skips PyPI and does not move
+`latest`. The release job builds the wheel, installs it into
 a throwaway venv, and renders a `CLAUDE.md` from a fixture sidecar, asserting its `@`-imports
 resolve, before publishing. `ci.yml` runs the suite plus two gates — *the wheel must carry its
 contract* and *the gate must run* — and reaches nothing outside its own checkout.

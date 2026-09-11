@@ -4,12 +4,21 @@ on:
     tags: ["v*"]
 
   # A REGISTRY ADDED AFTER A TAG WAS ALREADY CUT. The image job below publishes to two registries,
-  # and the second one was not always there. Running this workflow by hand against an existing tag
-  # backfills the image for a version whose wheel is already on PyPI — without inventing a version
-  # number whose only content is "the last release missed a registry". Select the tag as the ref;
-  # `GITHUB_REF_NAME` is then the tag itself, so the version gate below reads exactly as it does on
-  # a push.
+  # and the second one was not always there. Running this workflow by hand backfills the image for
+  # a version whose wheel is already on PyPI — without inventing a version number whose only
+  # content is "the last release missed a registry".
+  #
+  # THE TAG IS AN INPUT, NOT THE REF THIS RUNS FROM. GitHub takes the workflow FILE from the ref it
+  # is dispatched on, and the tag needing a backfill is by definition older than the workflow that
+  # can do it — dispatching on that tag would run the very file that lacks this trigger. So run it
+  # from the default branch and name the tag here; the checkout below takes the CONTENT from the
+  # tag, and the version gate still refuses a tag that disagrees with the `pyproject.toml` beside
+  # it.
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to publish an image for, e.g. v0.5.0"
+        required: true
 
 # PyPI Trusted Publishing (OIDC) — no token is stored anywhere. The one-time setup is a pending
 # publisher on pypi.org naming this repo and this workflow; after the first release it becomes a
@@ -81,17 +90,27 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Empty on a tag push, which is `checkout`'s own default — the ref that triggered the
+          # run. On a manual backfill it is the tag being republished, so every step below reads
+          # that tag's own tree rather than whatever the default branch has moved on to.
+          ref: ${{ inputs.tag }}
+
       - uses: astral-sh/setup-uv@v5
 
       - name: the version is the tag
         # The tag is what a consumer writes in a FROM line. A tag that disagrees with
         # pyproject.toml would publish an image whose own `version()` contradicts its name, which
-        # is exactly the confusion the CI gate above exists to prevent for the wheel.
+        # is exactly the confusion the CI gate above exists to prevent for the wheel. On a backfill
+        # this compares the named tag against the `pyproject.toml` checked out FROM that tag, so a
+        # typo in the input is refused rather than published under the wrong name.
         id: version
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          tag="${GITHUB_REF_NAME#v}"
+          tag="${TAG#v}"
           declared="$(uv run --quiet python -c             'import tomllib,pathlib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')"
-          [ "$tag" = "$declared" ] || { echo "::error::tag $GITHUB_REF_NAME does not match pyproject version $declared"; exit 1; }
+          [ "$tag" = "$declared" ] || { echo "::error::tag $TAG does not match pyproject version $declared"; exit 1; }
           echo "version=$tag" >> "$GITHUB_OUTPUT"
 
       - name: build

@@ -321,9 +321,16 @@ credential it was handed — so a use built by the cluster's shared builder can 
 product's own registry, whatever the README says. The push is skipped, with a notice, when
 `vars.PRODUCT_IMAGE` is unset.
 
-The workflow also accepts a manual run against an existing tag, to give an already-released version
-an image in a registry it missed. That run skips PyPI (which refuses a version it already holds)
-and does not move `latest` in either registry.
+To give an already-released version an image in a registry it missed, run the workflow by hand from
+the default branch with the tag as its input — it checks that tag out, and refuses it if it
+disagrees with the `pyproject.toml` beside it:
+
+```bash
+gh workflow run release.yml --ref main -f tag=v0.5.0
+```
+
+That run skips PyPI (which refuses a version it already holds) and does not move `latest` in either
+registry.
 
 ## Development
 
