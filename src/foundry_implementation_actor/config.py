@@ -100,7 +100,6 @@ class Component:
 
     name: str
     path: str
-    tests: str
     dockerfile: str
 
 
@@ -255,10 +254,6 @@ class CapabilityConfig:
         """The write boundary: the union of the components' own roots, and nothing else."""
         return tuple(c.path for c in self.components)
 
-    @property
-    def test_paths(self) -> tuple[str, ...]:
-        return tuple(c.tests for c in self.components)
-
     def component_for(self, path: str) -> Component | None:
         """The component a repo-relative path belongs to, by LONGEST matching prefix.
 
@@ -318,7 +313,7 @@ def _component(entry: object, source: str, index: int) -> Component:
     where = f"{source}: components[{index}]"
     if not isinstance(entry, dict):
         raise ConfigError(f"{where}: not a mapping")
-    for key in ("name", "path", "tests", "dockerfile"):
+    for key in ("name", "path", "dockerfile"):
         if not entry.get(key):
             raise ConfigError(f"{where}: missing required key '{key}'")
     path = str(entry["path"])
@@ -330,7 +325,7 @@ def _component(entry: object, source: str, index: int) -> Component:
             f"without the slash it would also match a sibling whose name merely starts with it"
         )
     return Component(name=str(entry["name"]), path=path,
-                     tests=str(entry["tests"]), dockerfile=str(entry["dockerfile"]))
+                     dockerfile=str(entry["dockerfile"]))
 
 
 def _grounding(entry: object, source: str, index: int) -> Grounding:

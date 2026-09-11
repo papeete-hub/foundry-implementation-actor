@@ -70,7 +70,6 @@ def _cmd_show(args: argparse.Namespace) -> int:
     for component in config.components:
         print(f"    {component.name}")
         print(f"      path        {component.path}")
-        print(f"      tests       {component.tests}")
         print(f"      dockerfile  {component.dockerfile}")
         print(f"      image name  {config.image_name(component.name)}")
         print(f"      image ref   "

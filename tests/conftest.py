@@ -28,10 +28,8 @@ SIDECAR = {
     "source_repo": SOURCE_REPO,
     "registry_repo": REGISTRY_REPO,
     "components": [
-        {"name": "backend", "path": "backend/", "tests": "backend/tests/",
-         "dockerfile": "backend/deployment/local"},
-        {"name": "stub", "path": "stub/", "tests": "stub/tests/",
-         "dockerfile": "stub/deployment/local"},
+        {"name": "backend", "path": "backend/", "dockerfile": "backend/deployment/local"},
+        {"name": "stub", "path": "stub/", "dockerfile": "stub/deployment/local"},
     ],
     "ground_in": [
         {"name": "business",

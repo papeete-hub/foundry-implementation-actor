@@ -10,8 +10,9 @@
 #   registry_repo             the knowledge registry the ground_in fetches resolve through. No
 #                             default exists: a fetch that silently reaches a fallback registry is
 #                             worse than one that fails.
-#   components                the units this actor may write to and publish. Their `path`s ARE the
-#                             write boundary — a commit staging anything outside them is refused.
+#   components                the units this actor may write to and publish — what gets built and
+#                             shipped. Their `path`s ARE the write boundary; a commit staging
+#                             anything outside them is refused.
 #   ground_in                 what the session is told BEFORE its first turn. Each entry is a
 #                             command to run and a place to put its output inside the clone. A
 #                             third knowledge source is an entry here, not a release of the
@@ -28,8 +29,8 @@ capability: ACME.PARTS.CAP.SUP.007.WID
 source_repo: acme-lab/ACME.PARTS.CAP.SUP.007.WID-implementation
 registry_repo: acme-lab/acme-governance
 components:
-  - {name: backend, path: backend/, tests: backend/tests/, dockerfile: backend/deployment/local}
-  - {name: stub,    path: stub/,    tests: stub/tests/,    dockerfile: stub/deployment/local}
+  - {name: backend, path: backend/, dockerfile: backend/deployment/local}
+  - {name: stub,    path: stub/,    dockerfile: stub/deployment/local}
 ground_in:
   - name: business
     answers: the WHAT/WHY — domain vision, business events, ubiquitous language

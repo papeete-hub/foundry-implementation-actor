@@ -37,6 +37,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -51,6 +52,20 @@ from .config import CapabilityConfig
 DEFAULT_CLONE_TIMEOUT_S = 120
 DEFAULT_SESSION_TIMEOUT_S = 1800
 DEFAULT_MAX_TURNS = 60
+
+# The assess door reads and answers; it never writes. Its budget is smaller than the implement
+# door's on every axis, and its tool list is the enforcement — a door that CANNOT write beats one
+# asked not to. See ADR-FIA-0004.
+DEFAULT_ASSESS_TIMEOUT_S = 600
+DEFAULT_ASSESS_MAX_TURNS = 15
+
+IMPLEMENT_TOOLS = "Bash,Read,Edit,Write,Glob,Grep"
+ASSESS_TOOLS = "Read,Glob,Grep"
+
+# The door ids this engine answers. They are the card's, not this module's invention — `judge()`
+# is handed the id it must dispatch on (see `_door_from_prompt`).
+IMPLEMENT_DOOR = "implement-task"
+ASSESS_DOOR = "assess-task"
 
 
 # ── stream-json projection: keeping every emitted log line inside Loki's max_line_size ────────
@@ -152,6 +167,10 @@ def _line(record: dict) -> str:
     return line
 
 
+# ```json … ``` or a bare ``` … ``` block. Non-greedy, DOTALL: one match per fence, in order.
+_FENCE = re.compile(r"```(?:json)?\s*\n(.*?)```", re.DOTALL)
+
+
 def _redact(text: str, secret: str | None) -> str:
     return text.replace(secret, "***") if secret else text
 
@@ -174,6 +193,58 @@ def _payload_from_prompt(prompt: str) -> dict:
         raise EngineError(f"could not recover payload from prompt: {e}") from e
 
 
+def _door_from_prompt(prompt: str) -> str:
+    """Recover the door id from `Actor.judge()`'s own fixed prompt format — its second line.
+
+    ONE ENGINE, TWO DOORS. The `Engine` port is a single `judge()`, and both this actor's doors
+    name the same engine key, so an instance registered under `claude-code` is asked to judge
+    both. `Actor.judge()` already puts the door id on line 2 of the prompt it builds, so the
+    dispatch needs nothing from the framework that is not already being handed over.
+    """
+    lines = prompt.split("\n", 2)
+    if len(lines) < 2 or not lines[1].startswith("door: "):
+        raise EngineError(f"prompt does not follow Actor.judge()'s fixed format: {prompt!r}")
+    return lines[1][len("door: "):].strip()
+
+
+def _extract_json(text: str) -> dict:
+    """The single JSON object a judged answer ends with.
+
+    A session's final `result` is prose that HAPPENS to contain the answer, not the answer — it
+    reliably wraps it in a fence and unreliably says something either side of it. So: try every
+    fenced block, last first (the last one is the conclusion; an earlier one is usually the
+    session quoting what it was asked for), then the whole text for the case where it complied
+    exactly. Anything else is an `EngineError` — a door that cannot say what it decided has not
+    decided anything, and guessing on its behalf would be worse than failing.
+    """
+    for block in reversed(_FENCE.findall(text)):
+        try:
+            parsed = json.loads(block)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    try:
+        parsed = json.loads(text.strip())
+    except json.JSONDecodeError:
+        parsed = None
+    if isinstance(parsed, dict):
+        return parsed
+    raise EngineError(
+        "the session produced no JSON object to read its judgement from; its answer ended: "
+        f"{text[-2000:]!r}"
+    )
+
+
+def _as_bool(value) -> bool:
+    """A session's idea of a boolean, as a boolean."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in ("true", "yes", "y", "1")
+    return bool(value)
+
+
 class ClaudeCodeEngine:
     """Judgement by shelling out to the `claude` CLI, against a fresh private clone."""
 
@@ -182,7 +253,9 @@ class ClaudeCodeEngine:
                  clone_timeout: int = DEFAULT_CLONE_TIMEOUT_S,
                  fetch_timeout: int = grounding.DEFAULT_FETCH_TIMEOUT_S,
                  session_timeout: int = DEFAULT_SESSION_TIMEOUT_S,
-                 max_turns: int = DEFAULT_MAX_TURNS):
+                 max_turns: int = DEFAULT_MAX_TURNS,
+                 assess_timeout: int = DEFAULT_ASSESS_TIMEOUT_S,
+                 assess_max_turns: int = DEFAULT_ASSESS_MAX_TURNS):
         self.config = config
         # The engine's `name` is what the card's door names, so it comes from the sidecar rather
         # than being fixed here — the port requires the attribute, not a particular value.
@@ -201,12 +274,36 @@ class ClaudeCodeEngine:
         self.fetch_timeout = fetch_timeout
         self.session_timeout = session_timeout
         self.max_turns = max_turns
+        # Constructor kwargs, not sidecar fields: how long this actor's own doors may think is
+        # operational tuning, not something a capability declares about itself (ADR-FIA-0002).
+        self.assess_timeout = assess_timeout
+        self.assess_max_turns = assess_max_turns
         self._configure_git_credentials()
 
     # ── the one Engine method ──────────────────────────────────────────────────────────────
 
     def judge(self, *, system: str, prompt: str, schema: dict | None = None) -> dict:
-        payload = _payload_from_prompt(prompt)
+        """The one `Engine` method, serving both of this actor's doors.
+
+        The port is a single `judge()`, and both doors name the same engine key, so the dispatch
+        is on the door id `Actor.judge()` already puts on line 2 of the prompt. The two paths are
+        deliberately asymmetric: `implement-task` hands its clone off live to the handler, which
+        commits, pushes and then removes it; `assess-task` owns its clone from end to end and
+        writes nothing anywhere.
+        """
+        door = _door_from_prompt(prompt)
+        if door == ASSESS_DOOR:
+            return self._assess(_payload_from_prompt(prompt), schema)
+        if door == IMPLEMENT_DOOR:
+            return self._implement(system, _payload_from_prompt(prompt))
+        raise EngineError(
+            f"this engine answers {IMPLEMENT_DOOR} and {ASSESS_DOOR}, not '{door}' — a door "
+            f"naming this engine must be one it knows how to judge"
+        )
+
+    # ── implement-task: the door that builds ───────────────────────────────────────────────
+
+    def _implement(self, system: str, payload: dict) -> dict:
         task_id = payload["task_id"]
         # The FIRST thing this door does, before anything that could fail: from here to the end
         # of this request's own thread, every record — this module's, handler.py's, and the HTTP
@@ -224,14 +321,7 @@ class ClaudeCodeEngine:
             branch = f"impl/{task_id}"
             self._git(clone_dir, ["checkout", "-b", branch])
 
-            # Grounding is a PRECONDITION, not a request — see grounding.py. It runs before the
-            # prompt is even built, and a failure here stops the request before any session time
-            # is spent, which is the cheapest place for it to stop.
-            for entry in self.config.ground_in:
-                with correlation.stage(f"ground-{entry.name}", into=entry.into, load=entry.load):
-                    envelope = grounding.fetch(self.config, entry, timeout=self.fetch_timeout)
-                    grounding.write_envelope(self.config, entry, clone_dir, envelope)
-            grounding.render_claude_md(self.config, clone_dir)
+            self._ground(clone_dir)
 
             situational_prompt = self._situational_prompt(payload)
             with correlation.stage("claude-session", branch=branch,
@@ -250,6 +340,80 @@ class ClaudeCodeEngine:
             "branch": branch,
             "summary": summary,
         }
+
+    # ── assess-task: the door that only answers ────────────────────────────────────────────
+
+    def _assess(self, payload: dict, schema: dict | None) -> dict:
+        """Judge whether the proposed acceptance surface can be delivered. Write nothing.
+
+        THE CLONE IS OWNED HERE, END TO END. `_implement` hands its clone off live because the
+        handler still has to commit and push from it. This door has no handler and produces no
+        artifact, so the `finally` is unconditional — success removes the clone exactly as
+        failure does.
+
+        NO BRANCH IS CHECKED OUT. There is nothing to put on one. The session gets the repository
+        as it stands on the default branch, which is the state the expectations are being judged
+        against.
+        """
+        task_id = payload["task_id"]
+        correlation.bind(correlation_id=correlation.correlation_id(), task_id=task_id)
+
+        clone_dir = Path(tempfile.mkdtemp(prefix=self.config.clone_prefix(task_id)))
+        try:
+            with correlation.stage("clone-code", repo=self.config.source_repo):
+                self._clone(clone_dir)
+            self._ground(clone_dir)
+
+            with correlation.stage("assess-session", max_turns=self.assess_max_turns,
+                                   timeout_s=self.assess_timeout):
+                answer = self._invoke_claude(
+                    clone_dir, self._assess_system(), self._assessment_prompt(payload, schema),
+                    allowed_tools=ASSESS_TOOLS, max_turns=self.assess_max_turns,
+                    timeout=self.assess_timeout,
+                )
+        finally:
+            _rmtree(clone_dir)
+
+        judged = _extract_json(answer)
+        if "feasible" not in judged:
+            raise EngineError(
+                "the assessment named no `feasible` — the one thing the caller has to be able to "
+                f"branch on; it answered: {judged!r}"
+            )
+        # Coerced rather than trusted: a session reliably means the boolean and unreliably types
+        # it, and `Actor.receive()` would refuse the whole reply over a "true" that is a string.
+        judged["feasible"] = _as_bool(judged["feasible"])
+        return judged
+
+    def _assess_system(self) -> str:
+        """The system prompt for the assess door.
+
+        NOT `Actor.judge()`'s own. That one is built from the whole card and ends with "Reply with
+        a single JSON object capturing your judgement" — which is right, and is passed through
+        unmodified for `implement-task`. But it is handed to this engine as `system` on both
+        doors, and this door needs the session to spend its turns READING rather than answering
+        from the card's prose alone. Saying so here keeps the framework's own prompt intact for
+        the door that wants it.
+        """
+        return (
+            "You are assessing, not building. Read the repository and the capability context you "
+            "have been given, decide what is and is not deliverable, and say so. Do not write, "
+            "edit or create any file; you have no tools to do so."
+        )
+
+    def _ground(self, clone_dir: Path) -> None:
+        """Fetch every `ground_in` source into the clone and render its `CLAUDE.md`.
+
+        Grounding is a PRECONDITION, not a request — see grounding.py. It runs before either
+        door's prompt is built, and a failure here stops the request before any session time is
+        spent, which is the cheapest place for it to stop. Both doors ground identically: the
+        question "can this be built" needs the same standing context as building it.
+        """
+        for entry in self.config.ground_in:
+            with correlation.stage(f"ground-{entry.name}", into=entry.into, load=entry.load):
+                envelope = grounding.fetch(self.config, entry, timeout=self.fetch_timeout)
+                grounding.write_envelope(self.config, entry, clone_dir, envelope)
+        grounding.render_claude_md(self.config, clone_dir)
 
     # ── git ─────────────────────────────────────────────────────────────────────────────────
 
@@ -322,8 +486,7 @@ class ClaudeCodeEngine:
             f"You are working inside your own private clone (branch already checked out). "
             f"Write ONLY under {boundary} — nothing else in this clone is yours to change. "
             f"Do not `git add`, `git commit`, or `git push` — that is handled outside this "
-            f"session. Iterate the test suite(s) of whichever component(s) you touch "
-            f"({', '.join(config.test_paths)}) until green before you finish.\n\n"
+            f"session.\n\n"
             f"Scope this session to {task_id}'s own Definition of Done against the CURRENT state "
             f"of {boundary} — extend what's already there for whichever component(s) this task "
             f"touches, don't re-derive or re-verify the whole capability's surface from scratch."
@@ -334,6 +497,18 @@ class ClaudeCodeEngine:
             "## Definition of done\n"
             + "\n".join(f"- {item}" for item in payload["definition_of_done"])
         )
+        if payload.get("acceptance_surface"):
+            # Agreed at the assess door before any of this was built, and binding on the actor
+            # that will test it too. Where it says something more precise than the definition of
+            # done, it is the more precise one that has to hold.
+            sections.append(
+                "## Agreed acceptance surface\n"
+                "This was agreed with the actor that will black-box test this increment, before "
+                "anything was built. Every expectation below must hold, addressable exactly as "
+                "its `handle` says — including any value committed to there. Where it is more "
+                "specific than the definition of done, it wins.\n\n"
+                + json.dumps(payload["acceptance_surface"], indent=2, ensure_ascii=False)
+            )
         if payload.get("remediation_context"):
             sections.append(
                 "## Remediation — the prior attempt's failing test criteria\n"
@@ -341,9 +516,68 @@ class ClaudeCodeEngine:
             )
         return "\n\n".join(sections)
 
+    # ── the assessment prompt ───────────────────────────────────────────────────────────────
+
+    def _assessment_prompt(self, payload: dict, schema: dict | None) -> str:
+        """What the assess door asks. Nothing about writing, because it cannot.
+
+        THE ANSWER'S SHAPE IS DERIVED, NOT INVENTED HERE. `Actor.judge()` already computes it
+        from the door's own `completion_schema` and hands it over as `schema`; rendering that is
+        how the prompt and the card cannot come to disagree. When it is absent — an engine driven
+        directly, in a test or a probe — the door's own prose is the only contract, and the
+        fallback below says the same thing in words.
+        """
+        config = self.config
+        task_id = payload["task_id"]
+        surface = payload.get("acceptance_surface") or []
+
+        sections = [
+            f"# Can {config.capability} deliver this for {task_id}: {payload['title']}?\n\n"
+            f"Another actor will black-box test this increment, and has proposed below what it "
+            f"intends to assert. NOTHING HAS BEEN BUILT YET. You are looking at the repository as "
+            f"it stands today, to answer one question: can each of those expectations be "
+            f"delivered under {', '.join(config.writes_only_under)}?\n\n"
+            f"You are READING ONLY. Do not write, edit or create any file — you have no tools to "
+            f"do so, and there is no branch and no commit at this door.\n\n"
+            f"Judge each expectation on its own and give it its own answer:\n"
+            f"- it can be delivered — and if a test could only address it once something is "
+            f"pinned (a fixture's id, an endpoint path, an event routing key, the environment "
+            f"variable its base URL arrives in), COMMIT to the exact value now. That commitment "
+            f"is a promise you will honour when you implement, not a description of anything that "
+            f"exists — nothing exists yet.\n"
+            f"- it cannot be delivered at all — say why, and counter-propose if you can see one.\n"
+            f"- the task does not determine it — say precisely what is missing. This is not a "
+            f"failure; it is the question a human has to answer before either of us proceeds.\n"
+            f"- it contradicts this capability's own contract, as your standing context states "
+            f"it — say which part."
+        ]
+        if payload.get("context"):
+            sections.append(f"## Context\n{payload['context']}")
+        sections.append(
+            "## Definition of done\n"
+            + "\n".join(f"- {item}" for item in payload["definition_of_done"])
+        )
+        sections.append(
+            "## Proposed acceptance surface\n"
+            + (json.dumps(surface, indent=2, ensure_ascii=False) if surface
+               else "(empty — say so, and say what you would expect to be asserted instead)")
+        )
+        sections.append(
+            "## Your answer\n"
+            "End with a single fenced ```json block and nothing after it, holding one object"
+            + (f" conforming to:\n\n```json\n{json.dumps(schema, indent=2)}\n```"
+               if schema else
+               " with `feasible` (boolean), `objections` (one entry per expectation you cannot "
+               "meet, each naming its `id`) and `commitments` (what you undertake to pin).")
+        )
+        return "\n\n".join(sections)
+
     # ── the judgement itself: a claude -p session against the checked-out clone ────────────
 
-    def _invoke_claude(self, clone_dir: Path, system: str, situational_prompt: str) -> str:
+    def _invoke_claude(self, clone_dir: Path, system: str, situational_prompt: str, *,
+                       allowed_tools: str = IMPLEMENT_TOOLS,
+                       max_turns: int | None = None,
+                       timeout: int | None = None) -> str:
         """Run the session, streaming every turn to the log as it happens.
 
         `--output-format stream-json --verbose` rather than `--output-format json`: the latter
@@ -355,12 +589,17 @@ class ClaudeCodeEngine:
         logged as it happens rather than after the session ends, and it stops a 30-minute
         session's entire output being buffered in a pod capped at 2Gi.
         """
+        max_turns = self.max_turns if max_turns is None else max_turns
+        timeout = self.session_timeout if timeout is None else timeout
         cmd = [
             self.claude_bin, "--print", "--output-format", "stream-json", "--verbose",
             "--append-system-prompt", system,
             "--permission-mode", "acceptEdits",
-            "--allowedTools", "Bash,Read,Edit,Write,Glob,Grep",
-            "--max-turns", str(self.max_turns),
+            # The assess door passes a list with no Write, Edit or Bash in it. That is the
+            # enforcement, not the prompt's own "you are reading only" — the same discipline as
+            # handler.py's containment check standing behind the implement door's write boundary.
+            "--allowedTools", allowed_tools,
+            "--max-turns", str(max_turns),
             situational_prompt,
         ]
         # stderr to a temp file, not a second pipe: nothing drains a second pipe while the
@@ -384,7 +623,7 @@ class ClaudeCodeEngine:
                 timed_out.set()
                 proc.kill()
 
-            watchdog = threading.Timer(self.session_timeout, _expire)
+            watchdog = threading.Timer(timeout, _expire)
             watchdog.start()
 
             final: dict | None = None
@@ -413,7 +652,7 @@ class ClaudeCodeEngine:
 
             if timed_out.is_set():
                 raise EngineError(
-                    f"claude session for this task exceeded {self.session_timeout}s"
+                    f"claude session for this task exceeded {timeout}s"
                 )
             errfile.seek(0)
             stderr = errfile.read()

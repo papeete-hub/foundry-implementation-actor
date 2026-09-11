@@ -33,6 +33,12 @@ from .config import Report, cards_path
 CARD_FILES = ("actor.yaml", "actor-data.yaml", "actor-message.yaml",
               "actor-synchronous-messaging.yaml")
 
+# Slicing the plural gets "action" from "actions" and "querie" from "queries". These messages are
+# what a use is told to act on, so the word they name the drift with has to be a word. The bug was
+# unreachable until the definition declared its first query (ADR-FIA-0004), which is how it
+# survived this long.
+_NOUN = {"actions": "action", "queries": "query"}
+
 
 def check(folder: str | Path = ".") -> Report:
     """Compare one use's cards against the definition this package ships."""
@@ -87,33 +93,34 @@ def check(folder: str | Path = ".") -> Report:
 def _compare(ours, theirs, kind: str, use: Path) -> list[str]:
     """The differences in one door family, as messages. Empty means they agree."""
     defined, used = getattr(ours, kind), getattr(theirs, kind)
+    noun = _NOUN[kind]
     errors = []
 
     for extra in sorted(set(used) - set(defined)):
-        errors.append(f"{use}: {kind[:-1]} '{extra}' is not a door the definition declares — a use "
+        errors.append(f"{use}: {noun} '{extra}' is not a door the definition declares — a use "
                       f"answers the actor's doors, it does not add its own")
     for absent in sorted(set(defined) - set(used)):
-        errors.append(f"{use}: {kind[:-1]} '{absent}' is missing — the definition declares it, so a "
+        errors.append(f"{use}: {noun} '{absent}' is missing — the definition declares it, so a "
                       f"caller addressing this actor may send it")
 
     for door in sorted(set(defined) & set(used)):
         mine, yours = defined[door], used[door]
         if mine.request_schema != yours.request_schema:
             errors.append(
-                f"{use}: {kind[:-1]} '{door}' accepts a different payload than the definition. "
+                f"{use}: {noun} '{door}' accepts a different payload than the definition. "
                 f"Its `door_schema` message and the data items that message references are what "
                 f"derive this, so one of the two drifted:\n"
                 f"      definition {mine.request_schema}\n"
                 f"      this use   {yours.request_schema}")
         if mine.completion_schema != yours.completion_schema:
             errors.append(
-                f"{use}: {kind[:-1]} '{door}' replies against a different completion set than the "
+                f"{use}: {noun} '{door}' replies against a different completion set than the "
                 f"definition:\n"
                 f"      definition {mine.completion_schema}\n"
                 f"      this use   {yours.completion_schema}")
         if mine.engine != yours.engine:
             errors.append(
-                f"{use}: {kind[:-1]} '{door}' resolves through engine '{yours.engine}', the "
+                f"{use}: {noun} '{door}' resolves through engine '{yours.engine}', the "
                 f"definition through '{mine.engine}' — the entrypoint registers the engine under "
                 f"the sidecar's `engine:` key, so these three must agree")
     return errors

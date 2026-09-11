@@ -7,12 +7,14 @@ hardcoded, and that no line it emits can exceed the budget Loki rejects outright
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 from papeete_actor_synchronous_messaging.engine import Engine, EngineError
 
 from foundry_implementation_actor.engine import (
-    LINE_BUDGET, ClaudeCodeEngine, _line, _payload_from_prompt, _project,
+    ASSESS_TOOLS, IMPLEMENT_TOOLS, LINE_BUDGET, ClaudeCodeEngine, _door_from_prompt,
+    _extract_json, _line, _payload_from_prompt, _project,
 )
 
 PAYLOAD = {
@@ -21,6 +23,19 @@ PAYLOAD = {
     "context": "Some background.",
     "definition_of_done": ["tests pass", "the event is published"],
 }
+
+# What the testing actor proposes at the assess door, before anything is built. The `id` is the
+# load-bearing part: a later verdict names it, so a failure points at an agreed expectation rather
+# than at a scraped line of pytest output.
+SURFACE = [
+    {"id": "EXP-001",
+     "statement": "GET /widgets/{widget_id} returns 200 with an ETag",
+     "handle": {"component": "backend", "base_url_env": "BACKEND_URL",
+                "method": "GET", "path": "/widgets/{widget_id}"}},
+    {"id": "EXP-002",
+     "statement": "three widgets are pre-seeded, addressable by stable ids",
+     "handle": {"component": "stub", "base_url_env": "STUB_URL"}},
+]
 
 
 @pytest.fixture
@@ -60,12 +75,21 @@ def test_the_token_error_names_the_repos_it_needs(config, tmp_path, monkeypatch)
 
 # ── the prompt ──────────────────────────────────────────────────────────────────────────────
 
-def test_the_prompt_names_the_derived_boundary_and_test_suites(engine):
+def test_the_prompt_names_the_derived_boundary(engine):
     prompt = engine._situational_prompt(PAYLOAD)
     assert "backend/, stub/" in prompt
-    assert "backend/tests/, stub/tests/" in prompt
     assert "TASK-042" in prompt
     assert "Supply the widget" in prompt
+
+
+def test_the_prompt_says_nothing_about_a_test_suite(engine):
+    """This actor does a developer's work: it may write and run unit tests inside its session as
+    any developer would, following the repo it is in. It is not TOLD to, and no test-tree path is
+    ever named to it — testing is another actor's contract (ADR-FIA-0002). The prompt used to
+    interpolate `components[].tests` here, which is the field that decision removed."""
+    prompt = engine._situational_prompt(PAYLOAD)
+    assert "tests/" not in prompt
+    assert "test suite" not in prompt
 
 
 def test_the_prompt_no_longer_asks_the_session_to_go_and_read_its_context(engine):
@@ -106,6 +130,182 @@ def test_a_prompt_in_another_shape_is_an_engine_error():
 def test_a_prompt_with_no_payload_is_an_engine_error():
     with pytest.raises(EngineError, match="could not recover"):
         _payload_from_prompt("verb: request\ndoor: implement-task\n{}")
+
+
+# ── two doors, one engine ───────────────────────────────────────────────────────────────────
+
+def test_the_door_is_recovered_from_the_framework_prompt():
+    """The `Engine` port is one `judge()`, and both doors name the same engine key. The door id
+    `Actor.judge()` already puts on line 2 is what tells them apart — nothing extra is needed
+    from the framework."""
+    assert _door_from_prompt("verb: query\ndoor: assess-task\n{}") == "assess-task"
+    assert _door_from_prompt("verb: request\ndoor: implement-task\n{}") == "implement-task"
+
+
+def test_a_prompt_naming_no_door_is_an_engine_error():
+    with pytest.raises(EngineError, match="fixed format"):
+        _door_from_prompt("verb: request\nnot-a-door\n{}")
+
+
+def test_a_door_this_engine_does_not_answer_is_refused(engine):
+    """A third door naming `claude-code` would otherwise be judged by whichever branch fell
+    through. It is named and refused instead."""
+    prompt = "verb: request\ndoor: deploy-task\n" + json.dumps({"payload": PAYLOAD})
+    with pytest.raises(EngineError, match="deploy-task"):
+        engine.judge(system="s", prompt=prompt)
+
+
+# ── the assessment prompt ───────────────────────────────────────────────────────────────────
+
+def test_the_assessment_prompt_carries_the_proposed_surface(engine):
+    prompt = engine._assessment_prompt({**PAYLOAD, "acceptance_surface": SURFACE}, None)
+    assert "EXP-001" in prompt and "EXP-002" in prompt
+    assert "BACKEND_URL" in prompt
+    assert "backend/, stub/" in prompt            # the derived boundary, not a literal
+    assert "TASK-042" in prompt
+
+
+def test_the_assessment_prompt_asks_for_a_commitment_not_a_report(engine):
+    """The distinction the whole round rests on. Nothing is built yet, so a value named here is a
+    promise; the same value named afterwards would be a description of what was found."""
+    prompt = engine._assessment_prompt({**PAYLOAD, "acceptance_surface": SURFACE}, None)
+    assert "NOTHING HAS BEEN BUILT YET" in prompt
+    assert "COMMIT to the exact value now" in prompt
+
+
+def test_the_assessment_prompt_never_asks_for_a_change(engine):
+    prompt = engine._assessment_prompt({**PAYLOAD, "acceptance_surface": SURFACE}, None)
+    assert "READING ONLY" in prompt
+    for forbidden in ("git add", "git commit", "git push", "Write ONLY under"):
+        assert forbidden not in prompt
+
+
+def test_the_answers_shape_is_the_cards_own_when_one_is_given(engine):
+    """`Actor.judge()` derives it from the door's `completion_schema` and hands it over. Rendering
+    that is how the prompt and the card cannot come to disagree."""
+    schema = {"properties": {"feasible": {"type": "boolean"}}, "required": ["feasible"]}
+    assert json.dumps(schema, indent=2) in engine._assessment_prompt(PAYLOAD, schema)
+
+    without = engine._assessment_prompt(PAYLOAD, None)
+    assert "`feasible` (boolean)" in without
+
+
+def test_an_empty_surface_is_said_out_loud(engine):
+    """A caller that proposed nothing gets asked what it expected, rather than a bare yes."""
+    assert "empty" in engine._assessment_prompt(PAYLOAD, None)
+
+
+# ── the agreed surface reaching the implement door ──────────────────────────────────────────
+
+def test_the_implement_prompt_carries_an_agreed_surface_only_when_given(engine):
+    assert "## Agreed acceptance surface" not in engine._situational_prompt(PAYLOAD)
+
+    prompt = engine._situational_prompt({**PAYLOAD, "acceptance_surface": SURFACE})
+    assert "## Agreed acceptance surface" in prompt
+    assert "EXP-001" in prompt
+    # It is more specific than the definition of done, and has to win where they differ.
+    assert "it wins" in prompt
+
+
+# ── reading the judgement back out of a session's prose ─────────────────────────────────────
+
+def test_a_fenced_json_answer_is_read():
+    assert _extract_json('Here is what I found.\n```json\n{"feasible": true}\n```') == {
+        "feasible": True}
+
+
+def test_a_bare_fence_is_read_too():
+    assert _extract_json('```\n{"feasible": false}\n```') == {"feasible": False}
+
+
+def test_the_last_fence_wins():
+    """A session usually quotes the shape it was asked for before answering in it. The conclusion
+    is the last block, not the first."""
+    text = ('```json\n{"feasible": "the shape I was given"}\n```\n'
+            'and my actual answer:\n```json\n{"feasible": true, "objections": []}\n```')
+    assert _extract_json(text) == {"feasible": True, "objections": []}
+
+
+def test_an_answer_with_no_json_is_an_engine_error():
+    with pytest.raises(EngineError, match="no JSON object"):
+        _extract_json("I think it is probably fine, yes.")
+
+
+def test_a_malformed_fence_falls_through_to_an_engine_error():
+    with pytest.raises(EngineError, match="no JSON object"):
+        _extract_json('```json\n{"feasible": tru\n```')
+
+
+# ── the assess door end to end, without a session ───────────────────────────────────────────
+
+@pytest.fixture
+def assessed(engine, monkeypatch):
+    """Drive `_assess` with the three things that need a network stubbed out, and record how the
+    session was invoked."""
+    seen = {}
+
+    def _fake_invoke(clone_dir, system, prompt, **kwargs):
+        seen.update(kwargs, clone_dir=clone_dir, system=system, prompt=prompt)
+        return seen["answer"]
+
+    monkeypatch.setattr(engine, "_clone", lambda dest: dest.mkdir(exist_ok=True))
+    monkeypatch.setattr(engine, "_ground", lambda clone_dir: None)
+    monkeypatch.setattr(engine, "_invoke_claude", _fake_invoke)
+
+    def _run(answer):
+        seen["answer"] = answer
+        return engine._assess({**PAYLOAD, "acceptance_surface": SURFACE}, None), seen
+    _run.seen = seen
+    return _run
+
+
+def test_the_assess_session_is_given_no_tool_that_writes(assessed):
+    _, seen = assessed('```json\n{"feasible": true}\n```')
+    assert seen["allowed_tools"] == ASSESS_TOOLS
+    assert "Write" not in ASSESS_TOOLS and "Edit" not in ASSESS_TOOLS
+    assert "Bash" not in ASSESS_TOOLS
+    assert IMPLEMENT_TOOLS != ASSESS_TOOLS
+
+
+def test_the_assess_session_gets_a_smaller_budget(assessed, engine):
+    _, seen = assessed('```json\n{"feasible": true}\n```')
+    assert seen["max_turns"] == engine.assess_max_turns < engine.max_turns
+    assert seen["timeout"] == engine.assess_timeout < engine.session_timeout
+
+
+def test_the_assess_door_removes_its_own_clone_on_success(assessed):
+    """`_implement` hands its clone off live for the handler to commit from. This door has no
+    handler and produces no artifact, so the cleanup is unconditional."""
+    _, seen = assessed('```json\n{"feasible": true}\n```')
+    assert not Path(seen["clone_dir"]).exists()
+
+
+def test_the_assess_door_removes_its_own_clone_on_failure(assessed):
+    """The `finally` is what makes this true on both paths — the session ran, so the clone
+    existed, and the answer was unreadable."""
+    with pytest.raises(EngineError):
+        assessed("no json here")
+    assert not Path(assessed.seen["clone_dir"]).exists()
+
+
+def test_the_judgement_comes_back_as_the_reply(assessed):
+    judged, _ = assessed(
+        '```json\n{"feasible": false, "objections": [{"id": "EXP-002", "why": "no such component"}]}\n```')
+    assert judged["feasible"] is False
+    assert judged["objections"][0]["id"] == "EXP-002"
+
+
+def test_a_stringly_typed_feasible_is_coerced(assessed):
+    """`Actor.receive()` validates the reply against the door's completion schema and would refuse
+    the whole thing over a "true" that is a string. A session means the boolean and types it
+    however it likes."""
+    judged, _ = assessed('```json\n{"feasible": "true"}\n```')
+    assert judged["feasible"] is True
+
+
+def test_an_assessment_that_answers_nothing_is_an_engine_error(assessed):
+    with pytest.raises(EngineError, match="feasible"):
+        assessed('```json\n{"objections": []}\n```')
 
 
 # ── the log budget ──────────────────────────────────────────────────────────────────────────

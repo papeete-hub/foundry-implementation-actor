@@ -21,6 +21,18 @@
 # the file that actually ENFORCES containment carried its own hardcoded copy. There is now exactly
 # one source: `components[].path`. A boundary that can be stated twice will eventually be stated
 # differently.
+#
+# ─── WHY `tests` IS NO LONGER A COMPONENT FIELD ───────────────────────────────────────────────
+# It was required here from the first commit, inherited from the repo this package was extracted
+# from — where implementation and testing lived side by side and the distinction did not exist
+# yet. `components[]` declares what is BUILT AND SHIPPED: `path` is the write boundary, and
+# `dockerfile` is the build context. A test suite is neither. See ADR-FIA-0002.
+#
+# THIS IS A LOOSENING OF v1, NOT A NEW CONTRACT. Nothing here rejects unknown keys, so a sidecar
+# still carrying `tests:` is conformant and the key is simply ignored — no use has to be edited.
+# Relaxing a required field is backward-compatible; it is ADDING one that breaks. Bumping to a v2
+# would instead send every un-migrated use down `lint`'s "UNMIGRATED, not checked" path, which
+# stops checking sidecars that are still perfectly valid.
 
 contract: foundry-implementation-actor/agentic-context/v1
 
@@ -75,11 +87,11 @@ fields:
   components:
     type: array
     doc: >-
-      The units this actor may write to and publish. Each entry declares its own boundary, its own
-      test suite, and its own Dockerfile context — the three things that were hardcoded, in three
-      different files, before this contract existed.
+      The units this actor may write to and publish — what gets BUILT AND SHIPPED, and nothing
+      else. Each entry declares its own boundary and its own Dockerfile context, two things that
+      were hardcoded, in two different files, before this contract existed.
     items:
-      required: [name, path, tests, dockerfile]
+      required: [name, path, dockerfile]
       fields:
         name:
           type: string
@@ -91,11 +103,6 @@ fields:
             boundary — nothing else declares it. May be more than one segment deep; the
             component a staged path belongs to is resolved by longest prefix, not by taking
             the path's first segment.
-        tests:
-          type: string
-          doc: >-
-            The component's own test suite, named in the session's prompt so the instruction to
-            iterate it green is not a hardcoded literal in an f-string.
         dockerfile:
           type: string
           doc: >-

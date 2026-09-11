@@ -76,7 +76,22 @@ def test_capability_with_nothing_after_cap_is_refused(sidecar_dict, write_sideca
 
 def test_writes_only_under_is_the_components(config):
     assert config.writes_only_under == ("backend/", "stub/")
-    assert config.test_paths == ("backend/tests/", "stub/tests/")
+
+
+def test_a_sidecar_still_declaring_tests_is_conformant(sidecar_dict, write_sidecar):
+    """`tests:` was removed from the contract as a LOOSENING of v1, not a new contract
+    (ADR-FIA-0002). Nothing here rejects unknown keys, so every sidecar written against the
+    earlier v1 keeps loading and keeps linting green, unedited — which is the whole reason the
+    contract string did not have to change. A strict-mode check added later would break that
+    silently, in every consuming repo at once, so it is pinned here rather than assumed."""
+    for component in sidecar_dict["components"]:
+        component["tests"] = f"{component['path']}tests/"
+    folder = write_sidecar(sidecar_dict)
+
+    config = CapabilityConfig.load(folder)
+    assert config.writes_only_under == ("backend/", "stub/")
+    assert not hasattr(config.components[0], "tests")
+    assert lint(folder).ok
 
 
 def test_a_component_path_must_end_in_a_slash(sidecar_dict, write_sidecar):
@@ -91,9 +106,8 @@ def test_a_component_path_must_end_in_a_slash(sidecar_dict, write_sidecar):
 
 def test_component_for_resolves_by_longest_prefix(sidecar_dict, write_sidecar):
     sidecar_dict["components"] = [
-        {"name": "core", "path": "src/", "tests": "src/tests/", "dockerfile": "src/deploy"},
-        {"name": "gateway", "path": "src/gateway/", "tests": "src/gateway/tests/",
-         "dockerfile": "src/gateway/deploy"},
+        {"name": "core", "path": "src/", "dockerfile": "src/deploy"},
+        {"name": "gateway", "path": "src/gateway/", "dockerfile": "src/gateway/deploy"},
     ]
     config = CapabilityConfig.load(write_sidecar(sidecar_dict))
     # The first-segment shortcut would call both of these "src".

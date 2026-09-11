@@ -35,6 +35,28 @@ of that capability's repo, and answers with the branch it pushed.**
 It **never opens a pull request.** That is a different actor's job, once a testing actor has also
 confirmed. This one answers "done, here is the branch and the images" and stops.
 
+### And one thing before that
+
+There is a second door, `assess-task`, asked **before** anything is built. The actor that will
+black-box test the increment proposes what it intends to assert; this one answers whether it can
+deliver it:
+
+```
+  a caller                    this actor
+  ────────                    ──────────
+  QUERY /assess-task    ─────▶ clone read-only, ground the session
+   task_id, title,             judge each proposed expectation
+   definition_of_done,         (Read/Glob/Grep only — no Write, no Edit, no Bash)
+   acceptance_surface
+  ◀───────────────────────────  {feasible, objections, commitments}
+```
+
+It writes nothing, commits nothing and publishes nothing — which is why it is a **query** rather
+than an action. A disagreement is an answer, not a refusal: the orchestrating actor hands it back
+to a human rather than starting a session on a task nobody can satisfy yet.
+
+The agreed surface then rides along as an optional `acceptance_surface` on `implement-task`.
+
 ### What it is for
 
 An implementation task is normally a human reading the capability's domain model, opening the
@@ -54,7 +76,7 @@ three properties that make the result trustworthy:
 ## The one idea: a definition, and a use
 
 This package **is** the actor. It ships the actor's four cards (`cards/` — who it is, the data it
-knows, the messages it exchanges, the one door it answers) plus the machinery behind them.
+knows, the messages it exchanges, the two doors it answers) plus the machinery behind them.
 
 A **use** is one capability's own folder: a copy of those four cards, named for the capability it
 serves, beside one extra file that binds it to that capability.
@@ -84,9 +106,9 @@ Four things are worth understanding:
 is derived from them (see the table `show` prints below). Nothing else in the file, and nothing at
 all in the package, spells a capability.
 
-**`components:`** — the units this actor may write to and publish. **Their `path`s are the write
-boundary**, and nothing else declares it. Each also names its own test suite (mentioned to the
-session) and its Dockerfile directory (used when publishing).
+**`components:`** — the units this actor may write to and publish: what gets built and shipped.
+**Their `path`s are the write boundary**, and nothing else declares it. Each also names its
+Dockerfile directory, used when publishing.
 
 **`ground_in:`** — what the session is told before turn one. Each entry is *a command to run* and
 *a place to put its output inside the clone*. The package knows no knowledge tool by name: it runs
@@ -192,7 +214,8 @@ adds a stage without any code change.
 3. **Edit `actor.yaml`** — its `name` and `description` are this use's own identity. Leave the
    other three cards exactly as they are; `lint` checks that they still match the definition.
 4. **Add an entrypoint and an image**: install `foundry-implementation-actor`, plus whatever tools
-   your `ground_in` names, and wire four lines:
+   your `ground_in` names, and wire four lines (`assess-task` needs no entry — it is a query with
+   an engine and no handler, so the engine's judgement is the reply):
 
 ```python
 from foundry_implementation_actor import CapabilityConfig, ClaudeCodeEngine, make_implement_task

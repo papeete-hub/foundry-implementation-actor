@@ -93,6 +93,46 @@ def test_a_different_engine_is_caught(tmp_path):
     assert any("resolves through engine" in e for e in report.errors)
 
 
+def test_a_use_that_never_gained_the_new_query_is_caught(tmp_path):
+    """The migration signal for a release that adds a door.
+
+    A use is a hand copy, and the day the definition gains a door every un-updated use keeps
+    linting green on its own and starts refusing a caller that addresses the new one. This gate is
+    the only thing that says so before the caller finds out — see ADR-FIA-0004, which added
+    `assess-task`.
+    """
+    folder = _use(tmp_path)
+    path = folder / "actor-synchronous-messaging.yaml"
+    doc = yaml.safe_load(path.read_text())
+    del doc["queries"]
+    path.write_text(yaml.safe_dump(doc, sort_keys=False))
+
+    # The use is still internally valid — that is exactly what makes this drift dangerous.
+    from papeete_actor_synchronous_messaging import card as pas_card
+    assert not pas_card.lint(folder).errors
+
+    report = conformance.check(folder)
+    assert not report.ok
+    assert any("assess-task" in e and "is missing" in e for e in report.errors), report.errors
+    # Slicing the plural would have called it a "querie". This message is the migration
+    # instruction someone acts on, so the word has to be a word.
+    assert any("query 'assess-task'" in e for e in report.errors), report.errors
+    assert not any("querie " in e for e in report.errors)
+
+
+def test_a_use_that_invents_a_door_of_its_own_is_caught(tmp_path):
+    """A use answers the actor's doors; it does not add its own."""
+    folder = _use(tmp_path)
+    path = folder / "actor-synchronous-messaging.yaml"
+    doc = yaml.safe_load(path.read_text())
+    doc["queries"].append({**doc["queries"][0], "id": "assess-everything"})
+    path.write_text(yaml.safe_dump(doc, sort_keys=False))
+
+    report = conformance.check(folder)
+    assert not report.ok
+    assert any("assess-everything" in e for e in report.errors)
+
+
 def test_prose_and_identity_are_not_compared(tmp_path):
     """A use SHOULD name its own capability and its own peers. That is not drift."""
     folder = _use(tmp_path)

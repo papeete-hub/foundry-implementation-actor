@@ -89,8 +89,7 @@ def test_a_component_root_absent_from_disk_does_not_break_the_add(sidecar_dict, 
     no changes. A component declared before its folder exists must not take the whole door down."""
     from foundry_implementation_actor.config import CapabilityConfig
     sidecar_dict["components"].append(
-        {"name": "frontend", "path": "frontend/", "tests": "frontend/tests/",
-         "dockerfile": "frontend/deployment/local"})
+        {"name": "frontend", "path": "frontend/", "dockerfile": "frontend/deployment/local"})
     config = CapabilityConfig.load(write_sidecar(sidecar_dict, git_repo.parent / "cfg"))
 
     (git_repo / "backend" / "new.py").write_text("x = 1\n")

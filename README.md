@@ -29,8 +29,8 @@ capability: ACME.PARTS.CAP.SUP.007.WID
 source_repo: acme-lab/ACME.PARTS.CAP.SUP.007.WID-implementation
 registry_repo: acme-lab/acme-governance
 components:
-  - {name: backend, path: backend/, tests: backend/tests/, dockerfile: backend/deployment/local}
-  - {name: stub,    path: stub/,    tests: stub/tests/,    dockerfile: stub/deployment/local}
+  - {name: backend, path: backend/, dockerfile: backend/deployment/local}
+  - {name: stub,    path: stub/,    dockerfile: stub/deployment/local}
 ground_in:
   - name: business
     answers: the WHAT/WHY — domain vision, business events, ubiquitous language
@@ -54,6 +54,9 @@ actor = Actor.from_card(".", mailbox=mailbox,
                         engines={config.engine: ClaudeCodeEngine(config)},
                         actions={"implement-task": make_implement_task(config)})
 ```
+
+`assess-task` needs no entry here: it is a query with an engine and no handler, so the engine's own
+judgement is the reply.
 
 A second capability instantiates the same actor by writing that file. Nothing here is subclassed,
 hooked, or configured with a strategy object — there is one shape, and it is this one.
@@ -95,7 +98,16 @@ Because the cards sit under `src/`, `tests/test_portability.py` greps them too �
 a knowledge tool name written into the actor's own definition fails the build exactly as it would
 in the code.
 
-## What one request does
+## Two doors
+
+| door | verb | what it does |
+|---|---|---|
+| `implement-task` | request | builds the increment, commits, pushes a branch, publishes one image per touched component |
+| `assess-task` | query | answers whether a proposed acceptance surface can be delivered. Writes nothing |
+
+Both name the same engine. `Actor.judge()` hands it the door id, and it dispatches on that.
+
+### `implement-task`
 
 ```
 clone (full, not --depth 1)
@@ -109,6 +121,42 @@ clone (full, not --depth 1)
 
 It never opens a pull request. Rendering a verdict and opening one belongs to whichever actor
 orchestrates the pipeline, once its other members have also confirmed.
+
+## The three amigos round
+
+Before any of that, the actor that will black-box test the increment says what it intends to
+assert, and this one answers whether that can be delivered:
+
+```
+orchestration ──▶ testing:        propose the acceptance surface for this task
+              ◀──                 expectations[] — each with a stable id, a statement, a handle
+orchestration ──▶ implementation: assess-task — can you deliver this?
+              ◀──                 feasible + objections[] + commitments[]
+
+  agreed     → the surface goes to implement-task AND test-task, on every attempt
+  disagreed  → orchestration stops and hands the objections back to a human
+```
+
+**Exactly one round, then a person.** No counter-proposal and no negotiation loop: a three-amigos
+meeting converges because a human is in the room, and here the human *is* the tie-breaker. *"The
+task does not determine this"* is a legitimate answer, and it is the most useful one.
+
+`assess-task` is a **query**, not an action — *"a promise to answer, from this actor's own state
+and nothing invented."* It clones read-only, grounds itself exactly as the implement door does, and
+is invoked with `Read,Glob,Grep` and no `Write`, `Edit` or `Bash`. A door that **cannot** write
+beats a door asked not to. It registers no handler either: with an engine and no handler,
+`Actor.receive()` returns the judged dict as the reply, and there is nothing to contain because
+nothing is produced.
+
+What it commits to is a **promise, not a report** — nothing has been built when it answers. That
+distinction is the whole point (`ADR-FIA-0004`): a tester deriving its assertions from what was
+already built can only ever confirm the build. The failure this prevents is real and already in the
+wild — an e2e suite carrying three fixture ids its own comment admits were *"discovered black-box
+against the running container"*, against a task card that never named them.
+
+`acceptance_surface` then rides along as an **optional** field on `implement-task`. Without it the
+door behaves exactly as before; with it, where it is more specific than the definition of done, it
+wins.
 
 ## Grounding is a precondition, not a request
 

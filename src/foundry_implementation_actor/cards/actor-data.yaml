@@ -21,6 +21,32 @@ items:
     description: >-
       on a retry, the prior attempt's failing test criteria — what the implementing session should
       fix this time; optional, absent on a first attempt
+  - name: acceptance_surface
+    type: list
+    description: >-
+      the observable expectations this increment must satisfy, each with a stable id, what must
+      hold, and the handle a black-box caller reaches it through — proposed by the testing actor
+      before anything is built, and agreed here. The dictionary types it as a list and stops
+      there, the way definition_of_done is a list of strings: the entry shape is written down in
+      the assess-task door's own means, not checked by this card
+  - name: feasible
+    type: boolean
+    description: >-
+      whether this actor can deliver the acceptance_surface it was asked to assess. False is an
+      ANSWER, not a refusal — the objections say what is wrong, and it is the caller's move
+  - name: objections
+    type: list
+    description: >-
+      one entry per expectation this actor cannot meet, naming the expectation's own id, why
+      (it cannot be built, the task does not determine it, or it contradicts the capability's
+      contract) and a counter-proposal where there is one; absent when everything was agreed
+  - name: commitments
+    type: list
+    description: >-
+      what this actor undertakes to pin for the expectations it agreed to, where agreeing is not
+      enough on its own — the exact fixture ids, endpoint path or event routing key a black-box
+      test will address. Made BEFORE anything is built, so it is a promise, not a report of what
+      was found afterwards; absent when nothing needed pinning
   - name: accepted
     type: boolean
     description: whether the implement-task request was accepted, pushed, and its images published
