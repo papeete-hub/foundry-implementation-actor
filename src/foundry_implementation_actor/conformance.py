@@ -1,9 +1,14 @@
 """Does this use still answer the same doors as the actor it claims to be?
 
 WHY THIS EXISTS. This package ships the actor's DEFINITION — four cards under `cards/` saying what
-a foundry implementation actor is. A USE is one capability's own folder, carrying its own copy of
-those four, named for the capability it serves. The copy is made by hand, because a use is a static
-repository today rather than something spawned from a capability id.
+a foundry implementation actor is. A USE is one capability's own folder, carrying those four beside
+its sidecar, named for the capability it serves.
+
+SINCE ADR-FIA-0005 A USE DOES NOT WRITE THEM. `instance.render_cards` produces them from the
+definition at `docker build` time, and cards that are generated from the thing they are compared
+against cannot disagree with it. This check remains for the copies that predate that — a use still
+carrying a hand copy, or one pinned to an older image — because those are exactly the ones that can
+be wrong, and because a gate that has become cheap to pass is not a reason to remove it.
 
 A hand copy drifts. Both folders pass `lint-card` independently — each is a conformant actor — and
 neither gate has any opinion about the other. So the day the definition gains a field, renames a
@@ -47,12 +52,14 @@ def check(folder: str | Path = ".") -> Report:
 
     present = [name for name in CARD_FILES if (use / name).exists()]
     if not present:
-        # Not an error. `lint` is also run against a sidecar on its own — in this package's own CI,
-        # among other places — and a folder with no cards is not a malformed use, just not a
-        # complete one.
-        report.warns.append(
-            f"{use}: no cards here, so nothing to compare — a use carries its own copy of the "
-            f"actor's four cards beside its sidecar"
+        # THE NORMAL CASE SINCE ADR-FIA-0005, not a shortfall. A use carries a sidecar; its cards
+        # are rendered from the definition at `docker build` time, and a folder checked before that
+        # step — in a source checkout, or in this package's own gates — has none to compare. There
+        # is nothing to report against a set of cards that will be generated from the very
+        # definition this check compares against.
+        report.oks.append(
+            f"{use}: no cards to compare — they are rendered from the definition "
+            f"(`foundry-implementation-actor render-cards`), so they cannot drift from it"
         )
         return report
     if len(present) != len(CARD_FILES):

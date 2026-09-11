@@ -7,11 +7,13 @@ it compares and, just as deliberately, what it does not.
 from __future__ import annotations
 
 import shutil
+from pathlib import Path
 
 import pytest
 import yaml
 
-from foundry_implementation_actor import cards_path, conformance
+from foundry_implementation_actor import (CapabilityConfig, cards_path, conformance,
+                                          render_cards)
 
 FIXTURE = "examples/ACME.PARTS.CAP.SUP.007.WID-implementation"
 
@@ -29,19 +31,30 @@ def test_a_verbatim_copy_conforms(tmp_path):
     assert conformance.check(_use(tmp_path)).ok
 
 
-def test_the_committed_fixture_conforms():
-    """The fixture the wheel gates run against is a real use, not a sidecar on its own."""
-    report = conformance.check(FIXTURE)
+def test_the_committed_fixture_conforms_once_its_cards_are_rendered(tmp_path):
+    """The fixture is a sidecar; its cards arrive at `docker build` time.
+
+    This is that build step, run in the suite: `render-cards` then `check`. It is the property the
+    whole of ADR-FIA-0005 rests on — that what the image generates for a use is, without anyone
+    checking, a conformant use of this actor.
+    """
+    folder = tmp_path / "use"
+    folder.mkdir()
+    shutil.copy(Path(FIXTURE) / "actor-agentic-context.yaml", folder)
+    render_cards(CapabilityConfig.load(folder), folder)
+
+    report = conformance.check(folder)
     assert report.ok, report.errors
     assert any("answers the definition's doors" in line for line in report.oks)
 
 
-def test_no_cards_warns_rather_than_fails(tmp_path):
-    """`lint` is also run against a bare sidecar. That is incomplete, not malformed."""
+def test_a_sidecar_on_its_own_is_the_normal_case(tmp_path):
+    """A use carries a sidecar. Cards it has not rendered yet are not a shortfall."""
     (tmp_path / "empty").mkdir()
     report = conformance.check(tmp_path / "empty")
     assert report.ok
-    assert any("no cards here" in w for w in report.warns)
+    assert not report.errors
+    assert any("rendered from the definition" in line for line in report.oks)
 
 
 def test_an_incomplete_card_set_fails(tmp_path):

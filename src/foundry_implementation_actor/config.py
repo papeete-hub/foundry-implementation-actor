@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from importlib import metadata
 from pathlib import Path
 
 import yaml
@@ -55,6 +56,21 @@ _CAPABILITY_SEGMENT = "cap"
 # What an unsubstituted placeholder looks like: a bare lowercase word in braces, and nothing else.
 # Narrow on purpose — see `CapabilityConfig.expand`.
 _PLACEHOLDER = re.compile(r"\{([a-z_]+)\}")
+
+
+def version() -> str:
+    """This package's own version, as installed.
+
+    Read from the installed distribution rather than written down a second time here: a literal in
+    the source and a version in `pyproject.toml` are two facts that can disagree, and the one a
+    rendered card would carry is the one nobody checks. In a source checkout with nothing
+    installed there is no distribution to ask, and `unknown` is the honest answer — a banner is
+    provenance, not a gate, and no behaviour turns on it.
+    """
+    try:
+        return metadata.version("foundry-implementation-actor")
+    except metadata.PackageNotFoundError:
+        return "unknown"
 
 
 def cards_path() -> Path:

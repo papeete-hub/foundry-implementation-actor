@@ -78,18 +78,21 @@ three properties that make the result trustworthy:
 This package **is** the actor. It ships the actor's four cards (`cards/` — who it is, the data it
 knows, the messages it exchanges, the two doors it answers) plus the machinery behind them.
 
-A **use** is one capability's own folder: a copy of those four cards, named for the capability it
-serves, beside one extra file that binds it to that capability.
+A **use** is one capability's own folder — and it holds **one hand-written file**, the one that
+binds it to that capability. The four cards are rendered into it from the definition at
+`docker build` time; nobody copies them (ADR-FIA-0005).
 
 ```
   foundry-implementation-actor        ACME.PARTS.CAP.SUP.007.WID-implementation
   (the definition — this package)     (a use — this folder)
-  ├── cards/                          ├── actor.yaml                       ← its own identity
-  │   ├── actor.yaml                  ├── actor-data.yaml                  ┐
-  │   ├── actor-data.yaml             ├── actor-message.yaml               │ copied from
-  │   ├── actor-message.yaml          ├── actor-synchronous-messaging.yaml ┘ the definition
-  │   └── actor-synchronous-…yaml     │
-  └── the machinery                   └── actor-agentic-context.yaml       ← THE BINDING
+  ├── cards/                          ├── actor-agentic-context.yaml   ← THE BINDING. Written.
+  │   ├── actor.yaml                  └── Dockerfile                   ← 4 lines, one a gate
+  │   ├── actor-data.yaml
+  │   ├── actor-message.yaml               …and, after `docker build`, inside the image:
+  │   └── actor-synchronous-…yaml          /actor/actor.yaml                   ← rendered:
+  ├── the machinery                        /actor/actor-data.yaml              ┐  identity from
+  └── the image                            /actor/actor-message.yaml           │  the sidecar,
+                                           /actor/actor-synchronous-…yaml      ┘  rest verbatim
 ```
 
 **`actor-agentic-context.yaml` is the whole binding.** No subclass, no fork, no code. A second
@@ -132,8 +135,10 @@ session pays the rest only if it opens the file. This example uses one of each s
 foundry-implementation-actor lint examples/ACME.PARTS.CAP.SUP.007.WID-implementation
 ```
 
-Two gates run: the sidecar conforms to the contract, *and* the four cards still match the
-definition's — because a use's cards are a hand copy, and hand copies drift.
+Two gates run: the sidecar conforms to the contract, *and* — once the cards have been rendered —
+they still answer the definition's doors. In this folder there are no cards yet, so the second gate
+says so and passes: they arrive at `docker build` time, from the definition, which is what stops
+them from ever disagreeing with it.
 
 **2. What will it actually do?** This is the one that makes it click:
 
@@ -208,14 +213,31 @@ adds a stage without any code change.
 
 ## Instantiate one for your own capability
 
-1. **Copy this folder.** Rename it after your capability's implementation repo.
+1. **Copy this folder.** Two files. Rename it after your capability's implementation repo.
 2. **Edit the sidecar**: your `capability`, your `source_repo`, your `registry_repo`, your
    `components`, and `ground_in` entries naming the knowledge tools you actually use.
-3. **Edit `actor.yaml`** — its `name` and `description` are this use's own identity. Leave the
-   other three cards exactly as they are; `lint` checks that they still match the definition.
-4. **Add an entrypoint and an image**: install `foundry-implementation-actor`, plus whatever tools
-   your `ground_in` names, and wire four lines (`assess-task` needs no entry — it is a query with
-   an engine and no handler, so the engine's judgement is the reply):
+3. **Edit one line of the Dockerfile** — the `pip install` of those knowledge tools. The base image
+   deliberately carries none: a `ground_in` entry supplies its own argv, so which tools exist is
+   your fact, not this package's.
+
+That is the whole instantiation. There is no third step: no cards to copy and keep in step, and no
+entrypoint to write — `render-cards` produces the first from the definition in the image, and
+`serve` is the second.
+
+Then, before you spend a single session on it:
+
+```bash
+foundry-implementation-actor lint .                 # the sidecar you just wrote
+foundry-implementation-actor show . --registry <your registry>   # every id it will derive
+docker build -t my-actor . && docker run --rm my-actor foundry-implementation-actor lint /actor
+```
+
+The last one is the interesting one: it lints the cards the image actually rendered, which is what
+a caller will be validated against.
+
+**Embedding it instead.** If you need your own base image, or the actor inside a larger process,
+install the wheel and wire four lines yourself (`assess-task` needs no entry — it is a query with
+an engine and no handler, so the engine's judgement is the reply):
 
 ```python
 from foundry_implementation_actor import CapabilityConfig, ClaudeCodeEngine, make_implement_task
@@ -226,4 +248,5 @@ actor = Actor.from_card(".", mailbox=mailbox,
                         actions={"implement-task": make_implement_task(config)})
 ```
 
-Then run `lint` and `show` before you spend a single session on it.
+You will want `foundry-implementation-actor render-cards .` first, so that `from_card` has cards to
+open.

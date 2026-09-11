@@ -1,6 +1,6 @@
 [project]
 name = "foundry-implementation-actor"
-version = "0.4.0"
+version = "0.5.0"
 description = "Runs a headless Claude Code implementation session against one capability's own repo — a papeete-actor for one use, with the capability supplied by a sidecar."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -24,6 +24,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# HOW THIS ACTOR IS CARRIED, not what it is. ADR-PAM-0001 keeps wire out of the message contract,
+# and the same line keeps an HTTP server and an OTLP exporter out of the dependency set of a
+# consumer that only wants `CapabilityConfig`. `foundry-implementation-actor serve` needs both, and
+# the image this package publishes installs exactly this extra (ADR-FIA-0005).
+serve = [
+  "papeete-actor-synchronous-messaging-http>=0.4.0",
+  "papeete-observability>=0.1.0",
+]
 dev = ["pytest>=8.0"]
 
 [project.scripts]

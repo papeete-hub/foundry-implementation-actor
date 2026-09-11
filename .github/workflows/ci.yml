@@ -1,8 +1,14 @@
 name: ci
 on: [push, pull_request]
 
-# NO CREDENTIAL. This pipeline reaches nothing outside its own checkout — no registry, no lab
-# repo, no PyPI. Everything it asserts, it asserts from source and from a wheel it built itself.
+# NO CREDENTIAL. Nothing here authenticates to anything: no lab repo, no knowledge registry, no
+# PyPI upload, no image push. Everything this pipeline asserts about THIS package, it asserts from
+# source and from artifacts it built itself — the wheel it just built, and an image built from
+# that wheel rather than from a published one.
+#
+# It does reach the network for inputs: public base images and the npm package the engine drives.
+# That is fetching, not authenticating, and the distinction is the one that matters here — no
+# secret is available to this workflow, so nothing it runs can reach a real capability's repo.
 
 jobs:
   build:
@@ -56,3 +62,71 @@ jobs:
         # The property the whole design rests on: an @-import naming a file that is not there is a
         # session grounded in nothing, and it looks identical to one grounded correctly.
         run: /tmp/probe/bin/python scripts/probe_grounding.py examples/ACME.PARTS.CAP.SUP.007.WID-implementation
+
+  # ── the other half of what this package ships ─────────────────────────────────────────────────
+  #
+  # ADR-FIA-0005: a use is a sidecar, and the image is what turns one into a running actor. The
+  # job above proves the WHEEL works. This one proves the claim a consumer actually depends on —
+  # that a folder containing one YAML file builds into an actor that boots and answers its doors.
+  # Nothing here reaches a registry: the image is built, run and thrown away in the runner.
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+
+      - name: build the wheel this image will carry
+        # The image installs the wheel from dist/ rather than from PyPI, so that an image tagged
+        # <version> cannot contain some other build of <version> — see docker/Dockerfile.
+        run: uv build
+
+      - name: the base image
+        run: docker build -f docker/Dockerfile -t foundry-implementation-actor:ci .
+
+      - name: the image and the wheel are one release
+        # Two artifacts, one version. An image whose wheel says something else is the failure this
+        # arrangement creates, so it is the one CI asserts.
+        run: |
+          wheel="$(ls dist/*.whl | sed -E 's/.*-([0-9][^-]*)-py3.*/\1/')"
+          in_image="$(docker run --rm --entrypoint python foundry-implementation-actor:ci \
+            -c 'from foundry_implementation_actor import version; print(version())')"
+          echo "wheel=$wheel image=$in_image"
+          [ "$wheel" = "$in_image" ] || { echo "::error::image carries $in_image, wheel is $wheel"; exit 1; }
+
+      - name: a use is a sidecar
+        # The example folder holds exactly one file besides its Dockerfile. If this builds, the
+        # claim in the README is true of a real folder rather than of prose.
+        run: |
+          test "$(ls examples/ACME.PARTS.CAP.SUP.007.WID-implementation | grep -cv '^Dockerfile$')" = "1"
+          docker build --build-arg ACTOR_IMAGE=foundry-implementation-actor:ci \
+            -t use:ci examples/ACME.PARTS.CAP.SUP.007.WID-implementation
+
+      - name: the rendered cards are what a caller is validated against
+        # Rendering is the construction that replaces the hand copy conformance.check was built to
+        # police. Assert it inside the image, against the cards the image actually runs.
+        run: |
+          docker run --rm use:ci foundry-implementation-actor lint /actor
+
+      - name: it boots, and answers the doors its cards declare
+        # The credentials are deliberately junk. The engine refuses to construct without a
+        # GITHUB_TOKEN — which is itself worth having, and is why they are set rather than omitted
+        # — and no door is actually exercised here: a 400 means routed and refused the payload, a
+        # 404 would mean the route was never built.
+        run: |
+          docker run -d --name smoke -p 18080:8080 \
+            -e GITHUB_TOKEN=ci -e CLAUDE_CODE_OAUTH_TOKEN=ci use:ci
+          for _ in $(seq 1 30); do
+            curl -fsS -m 2 http://localhost:18080/health >/dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -fsS -m 5 http://localhost:18080/health | grep -q ok
+          for door in implement-task assess-task; do
+            code="$(curl -sS -o /dev/null -w '%{http_code}' -m 5 -X POST \
+              -H 'content-type: application/json' -d '{}' "http://localhost:18080/$door")"
+            [ "$code" = "400" ] || { echo "::error::POST /$door answered $code, expected 400 (routed, bad payload)"; exit 1; }
+          done
+          code="$(curl -sS -o /dev/null -w '%{http_code}' -m 5 -X POST \
+            -H 'content-type: application/json' -d '{}' http://localhost:18080/no-such-door)"
+          [ "$code" = "404" ] || { echo "::error::an undeclared door answered $code, expected 404"; exit 1; }
+          docker logs smoke | grep -q actor-started
+          docker rm -f smoke

@@ -44,7 +44,27 @@ ground_in:
     load: on-demand
 ```
 
-and four lines in the consuming entrypoint:
+and, beside it, a four-line Dockerfile:
+
+```dockerfile
+FROM ghcr.io/papeete-hub/foundry-implementation-actor:0.5.0
+RUN pip install --no-cache-dir kpack==2.0.1 kontract==0.1.0   # what this sidecar's ground_in names
+COPY actor-agentic-context.yaml /actor/
+RUN foundry-implementation-actor render-cards /actor && foundry-implementation-actor lint /actor
+```
+
+**That is the whole repository.** No cards, no entrypoint, no Python. The cards are rendered from
+the definition in the image, the entrypoint is `foundry-implementation-actor serve`, and the only
+hand-written line naming anything is the `pip install` of the knowledge tools this capability's own
+`ground_in:` argv happens to name — which is the consumer's fact by design (ADR-FIA-0005).
+
+A second capability instantiates the same actor by writing that sidecar. Nothing here is
+subclassed, hooked, or configured with a strategy object — there is one shape, and it is this one.
+
+### Embedding it instead
+
+A consumer that wants its own base image, or the actor inside a larger process, skips all of the
+above and wires it in four lines:
 
 ```python
 from foundry_implementation_actor import CapabilityConfig, ClaudeCodeEngine, make_implement_task
@@ -56,10 +76,9 @@ actor = Actor.from_card(".", mailbox=mailbox,
 ```
 
 `assess-task` needs no entry here: it is a query with an engine and no handler, so the engine's own
-judgement is the reply.
-
-A second capability instantiates the same actor by writing that file. Nothing here is subclassed,
-hooked, or configured with a strategy object — there is one shape, and it is this one.
+judgement is the reply. `pip install foundry-implementation-actor` is enough for this; the mailbox
+and the observability backend that `serve` needs live in the `[serve]` extra, so an embedder is not
+handed an HTTP server it did not ask for.
 
 ## The definition, and a use
 
@@ -68,11 +87,14 @@ four cards — who it is, the data it knows, the messages it exchanges, and the 
 door it answers — and they ship in the wheel, reachable as `cards_path()`. They name no capability,
 because which capability an instance serves is not part of what the actor *is*.
 
-A **use** of this actor is one capability's own folder: its own copy of those four cards, named for
-the capability it serves, beside the `actor-agentic-context.yaml` that binds it to that capability's
-repository and knowledge base. Today that folder is a static repository, and the copy is made by
-hand. Once an instance can be spawned from a capability id alone, the cards here are what it would
-be rendered from — which is why they live in the wheel rather than in an `examples/` folder.
+A **use** of this actor is one capability's own folder: the `actor-agentic-context.yaml` that binds
+it to that capability's repository and knowledge base, and the four cards named for the capability
+it serves — **rendered from the definition, not copied.** `foundry-implementation-actor
+render-cards` writes them, the image runs it at `docker build` time, and a use's repository
+therefore holds one hand-written YAML file. That is why the cards live in the wheel rather than in
+an `examples/` folder: they are build input, not documentation (ADR-FIA-0005).
+
+They used to be copied by hand, which is why the gate below exists.
 
 The split is what the name asserts. `ADR-ECO-0022` makes the `-actor` suffix an obligation: a
 package ending in `-actor` claims a `papeete-actor` underneath, *"and a `<use>-<tier>-actor` that
@@ -84,12 +106,17 @@ papeete-actor-synchronous-messaging lint-card \
   "$(python -c 'from foundry_implementation_actor import cards_path; print(cards_path())')"
 ```
 
-A use's copy is made by hand, so it can drift: both folders pass `lint-card` independently, and
-neither gate has an opinion about the other. `foundry-implementation-actor lint` therefore runs a
-second check — `conformance.check` — comparing the use's cards against the definition's on the
-**derived wire contract**: the set of doors, and each door's `request_schema`, `completion_schema`
-and `engine`. Those derivations already fold in the data dictionary and the message catalog, so a
-renamed item or a changed reference lands in the payload a caller is validated against.
+A hand copy drifts: both folders pass `lint-card` independently, and neither gate has an opinion
+about the other. `foundry-implementation-actor lint` therefore runs a second check —
+`conformance.check` — comparing the use's cards against the definition's on the **derived wire
+contract**: the set of doors, and each door's `request_schema`, `completion_schema` and `engine`.
+Those derivations already fold in the data dictionary and the message catalog, so a renamed item or
+a changed reference lands in the payload a caller is validated against.
+
+Rendering makes that gate cheap to pass rather than redundant, and both are worth having: a use
+still carrying a hand copy from before 0.5.0, or one pinned to an older image, is exactly the case
+that can be wrong — and a construction that cannot drift is still better than a check that catches
+drift, which is why the rendering exists at all.
 
 Prose is not compared, on purpose: a use *should* name its real capability and its real peers, and
 `actor.yaml`'s `name:` is its own identity and is required to differ.
@@ -238,11 +265,14 @@ this can be an ordinary Pod.
 ## CLI
 
 ```bash
-foundry-implementation-actor lint .                        # validate the sidecar
+foundry-implementation-actor lint .                        # validate the sidecar and the cards
 foundry-implementation-actor show . --registry reg.example.com   # every derived rendering
+foundry-implementation-actor render-cards .                # write the four cards from the wheel
+foundry-implementation-actor serve .                       # boot it (needs the `serve` extra)
 ```
 
-`lint` is the gate CI runs. A sidecar declaring some other `context:` is read, warned, and not
+`render-cards` and `serve` are what the image runs, and are usable anywhere the wheel is. `lint` is
+the gate CI runs. A sidecar declaring some other `context:` is read, warned, and not
 checked further — UNMIGRATED is not the same as non-conformant, and migrating is the owning pair's
 own act.
 

@@ -17,12 +17,18 @@ Wiring one up is four lines:
 
 `correlation` is exported too — an entrypoint installs its filter on the root logger's handlers
 after configuring observability, so every record the process emits carries this request's ids.
+
+Those four lines are for embedding. A use that just wants the actor writes no Python at all: the
+image this package publishes renders the cards from the sidecar and runs `serve`, which is those
+four lines plus the observability wiring that used to be copied into every repo (ADR-FIA-0005).
 """
 from .config import (CapabilityConfig, Component, ConfigError, Grounding, Report,
-                     cards_path, lint)
+                     cards_path, lint, version)
 from .engine import ClaudeCodeEngine
 from .handler import HandlerError, make_implement_task
-from . import conformance, correlation, grounding
+from .instance import render_cards
+from .serve import ServeError, serve
+from . import conformance, correlation, grounding, instance
 
 __all__ = [
     "CapabilityConfig",
@@ -36,6 +42,11 @@ __all__ = [
     "conformance",
     "correlation",
     "grounding",
+    "instance",
     "lint",
     "make_implement_task",
+    "render_cards",
+    "serve",
+    "ServeError",
+    "version",
 ]

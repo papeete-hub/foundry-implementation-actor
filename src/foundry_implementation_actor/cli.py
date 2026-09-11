@@ -1,9 +1,14 @@
 """`foundry-implementation-actor` — the gate, and the derivation table.
 
-Two subcommands, both thin. `lint` is what CI runs against a sidecar; `show` prints every
-rendering `config.py` derives from the two fields that are actually written down, so an operator
-can check the image ref an actor WILL publish before it publishes one — the previous arrangement
-could only be checked by reading a running actor's logs after the fact.
+Four subcommands. `lint` is what CI runs against a sidecar; `show` prints every rendering
+`config.py` derives from the two fields that are actually written down, so an operator can check
+the image ref an actor WILL publish before it publishes one — the previous arrangement could only
+be checked by reading a running actor's logs after the fact.
+
+`render-cards` and `serve` are what make a use's whole repository one sidecar (ADR-FIA-0005): the
+first writes the actor's four cards beside it from the definition in this wheel, the second boots
+the thing. Both run inside the image this package publishes, which is where a use meets them; both
+work in a plain venv too, which is where this repo's own gates run them.
 
 House rule: every published package in this ecosystem ships a CLI named exactly the package.
 """
@@ -14,7 +19,9 @@ import sys
 from pathlib import Path
 
 from . import conformance
-from .config import CapabilityConfig, ConfigError, lint
+from .config import CapabilityConfig, ConfigError, lint, version
+from .instance import render_cards
+from .serve import DEFAULT_PORT, ServeError, serve
 
 _REGISTRY_PLACEHOLDER = "<registry>"
 
@@ -83,6 +90,39 @@ def _cmd_show(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_render_cards(args: argparse.Namespace) -> int:
+    # The step that deletes the hand copy. Run at `docker build` time, right after the sidecar is
+    # COPY'd in: from then on the cards in that folder came from a version, not from someone's
+    # editor, and the next version's cards arrive with the next `FROM`.
+    try:
+        config = CapabilityConfig.load(Path(args.folder))
+    except ConfigError as e:
+        print(f"  FAIL {e}")
+        return 2
+    try:
+        written = render_cards(config, Path(args.folder))
+    except FileNotFoundError as e:
+        print(f"  FAIL {e}")
+        return 2
+    for path in written:
+        print(f"  ok   rendered {path}")
+    print(f"✓ {config.actor_name} — four cards from the definition in "
+          f"foundry-implementation-actor=={version()}")
+    return 0
+
+
+def _cmd_serve(args: argparse.Namespace) -> int:
+    # No try/except around the boot itself. A misconfigured actor that starts anyway and refuses
+    # every caller at the door is strictly worse than a pod that crash-loops with the reason on
+    # stdout, which is what an uncaught ConfigError produces here.
+    try:
+        serve(Path(args.folder), port=args.port)
+    except (ConfigError, ServeError) as e:
+        print(f"  FAIL {e}", file=sys.stderr)
+        return 2
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="foundry-implementation-actor",
@@ -103,6 +143,24 @@ def build_parser() -> argparse.ArgumentParser:
     show_parser.add_argument(
         "--registry", help=f"render image refs against this registry (default: {_REGISTRY_PLACEHOLDER})")
     show_parser.set_defaults(func=_cmd_show)
+
+    render_parser = sub.add_parser(
+        "render-cards",
+        help="write the actor's four cards into a use's folder, from the definition in this wheel")
+    render_parser.add_argument(
+        "folder", nargs="?", default=".",
+        help="the folder holding this use's actor-agentic-context.yaml (default: .)")
+    render_parser.set_defaults(func=_cmd_render_cards)
+
+    serve_parser = sub.add_parser(
+        "serve", help="boot this actor and answer its doors (needs the `serve` extra)")
+    serve_parser.add_argument(
+        "folder", nargs="?", default=".",
+        help="the folder holding this use's sidecar and cards (default: .)")
+    serve_parser.add_argument(
+        "--port", type=int, default=None,
+        help=f"override $PORT (default: $PORT, else {DEFAULT_PORT})")
+    serve_parser.set_defaults(func=_cmd_serve)
 
     return parser
 

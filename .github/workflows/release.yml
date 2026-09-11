@@ -7,8 +7,9 @@ on:
 # publisher on pypi.org naming this repo and this workflow; after the first release it becomes a
 # normal publisher. See README.
 permissions:
-  id-token: write
+  id-token: write   # PyPI Trusted Publishing
   contents: read
+  packages: write   # the image, to this repo's own container registry
 
 jobs:
   publish:
@@ -47,3 +48,59 @@ jobs:
 
       - name: publish to PyPI
         run: uv publish --trusted-publishing always
+
+  # ── the image, from the same tag and the same checkout ────────────────────────────────────────
+  #
+  # TWO ARTIFACTS, ONE RELEASE (ADR-FIA-0005). A use pins an image; an embedder pins a wheel; both
+  # are this package at this version. A tag that produced one and not the other leaves a consumer
+  # unable to take the release at all — so this job builds the wheel again from the same checkout
+  # rather than installing the one just uploaded: the image must not depend on PyPI having already
+  # indexed it, and must not be able to pick up a different build of the same version.
+  #
+  # It runs AFTER the wheel is published, not beside it. A failed upload should not leave an image
+  # published for a version that does not exist on PyPI; the reverse — a wheel with the image still
+  # to come — is recoverable by re-running this job alone.
+  image:
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+
+      - name: the version is the tag
+        # The tag is what a consumer writes in a FROM line. A tag that disagrees with
+        # pyproject.toml would publish an image whose own `version()` contradicts its name, which
+        # is exactly the confusion the CI gate above exists to prevent for the wheel.
+        id: version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          declared="$(uv run --quiet python -c             'import tomllib,pathlib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')"
+          [ "$tag" = "$declared" ] || { echo "::error::tag $GITHUB_REF_NAME does not match pyproject version $declared"; exit 1; }
+          echo "version=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: build
+        run: uv build
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: the image, tagged and latest
+        run: |
+          image="ghcr.io/${{ github.repository }}"
+          docker build -f docker/Dockerfile \
+            -t "$image:${{ steps.version.outputs.version }}" \
+            -t "$image:latest" .
+          docker push "$image:${{ steps.version.outputs.version }}"
+          docker push "$image:latest"
+
+      - name: a use built on it is still an actor
+        # BEFORE the image is something anyone can pin — the same reason the grounding probe runs
+        # before the upload above. An image that builds but produces a use that does not conform is
+        # not something to discover from a published tag.
+        run: |
+          docker build --build-arg ACTOR_IMAGE=ghcr.io/${{ github.repository }}:${{ steps.version.outputs.version }} \
+            -t use:release examples/ACME.PARTS.CAP.SUP.007.WID-implementation
+          docker run --rm use:release foundry-implementation-actor lint /actor
