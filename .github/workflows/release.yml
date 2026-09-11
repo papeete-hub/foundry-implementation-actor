@@ -3,6 +3,14 @@ on:
   push:
     tags: ["v*"]
 
+  # A REGISTRY ADDED AFTER A TAG WAS ALREADY CUT. The image job below publishes to two registries,
+  # and the second one was not always there. Running this workflow by hand against an existing tag
+  # backfills the image for a version whose wheel is already on PyPI — without inventing a version
+  # number whose only content is "the last release missed a registry". Select the tag as the ref;
+  # `GITHUB_REF_NAME` is then the tag itself, so the version gate below reads exactly as it does on
+  # a push.
+  workflow_dispatch:
+
 # PyPI Trusted Publishing (OIDC) — no token is stored anywhere. The one-time setup is a pending
 # publisher on pypi.org naming this repo and this workflow; after the first release it becomes a
 # normal publisher. See README.
@@ -13,6 +21,10 @@ permissions:
 
 jobs:
   publish:
+    # ONLY ON A TAG PUSH. A manual run exists to backfill an IMAGE (see `on:` above), and PyPI
+    # refuses a version it already holds — so re-uploading is not merely redundant, it fails, and
+    # would take the image job down with it.
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: pypi
     steps:
@@ -62,6 +74,10 @@ jobs:
   # to come — is recoverable by re-running this job alone.
   image:
     needs: publish
+    # `needs` still orders this after the wheel on a tag push. On a manual backfill `publish` is
+    # skipped, and a skipped dependency skips its dependents too unless `always()` says otherwise —
+    # so the condition has to name both cases rather than relying on `needs` alone.
+    if: always() && (needs.publish.result == 'success' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -88,13 +104,82 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: the image, tagged and latest
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          # `latest` FOLLOWS THE RELEASE STREAM, NOT A BACKFILL. A manual run exists to give an
+          # already-released version an image in a registry it missed; run against an older tag it
+          # would otherwise drag `latest` backwards onto it, silently, in whichever registry a
+          # consumer happens to pull from. The version tag is the whole point of a backfill —
+          # `latest` already names something newer, and stays there.
+          MOVE_LATEST: ${{ github.event_name == 'push' }}
         run: |
           image="ghcr.io/${{ github.repository }}"
-          docker build -f docker/Dockerfile \
-            -t "$image:${{ steps.version.outputs.version }}" \
-            -t "$image:latest" .
-          docker push "$image:${{ steps.version.outputs.version }}"
-          docker push "$image:latest"
+          docker build -f docker/Dockerfile -t "$image:$VERSION" -t "$image:latest" .
+          docker push "$image:$VERSION"
+          if [ "$MOVE_LATEST" = "true" ]; then docker push "$image:latest"; fi
+
+      # ── the product's own registry ────────────────────────────────────────────────────────────
+      #
+      # TWO REGISTRIES, ONE IMAGE. GHCR is where this package publishes; a product that RUNS uses
+      # of it pulls from its own registry, which its cluster already authenticates to and which a
+      # `FROM` line inside that cluster's builder can reach without a second credential. The base
+      # image has to exist in both, because the two are reached by different things: an embedder
+      # writing a Dockerfile reads the README and pins GHCR, while a use built by an in-cluster
+      # builder resolves its `FROM` against the registry that builder has a push token for.
+      #
+      # THE SAME IMAGE, NOT ANOTHER BUILD. `docker tag` re-points the build the step above already
+      # pushed, so both registries hold one digest. Building a second time would let them diverge —
+      # a base-image refresh between two steps of one job is enough — and nothing downstream would
+      # ever notice that `:0.5.0` meant two different things depending on where you pulled it.
+      #
+      # ONE VARIABLE NAMES THE WHOLE TARGET. `vars.PRODUCT_IMAGE` is the full repository path, e.g.
+      # `<name>.azurecr.io/<product>/foundry-implementation-actor`; the login server is its first
+      # segment. This package is generic across capabilities and names no product of its own — the
+      # same rule `tests/test_portability.py` enforces over `src/` — so the product that hosts a
+      # registry names itself in a repository variable rather than in this file.
+      #
+      # UNSET IS A VALID STATE, AND IT SAYS SO. A fork, or this repo before its credentials were
+      # added, publishes to GHCR alone; that is a `::notice`, not a failure. Configured-but-broken
+      # IS a failure — the push below is not best-effort, because an image the product's cluster
+      # cannot pull is the whole reason this block exists.
+      - name: is a product registry configured?
+        id: product
+        env:
+          PRODUCT_IMAGE: ${{ vars.PRODUCT_IMAGE }}
+        run: |
+          if [ -z "$PRODUCT_IMAGE" ]; then
+            echo "::notice::PRODUCT_IMAGE is unset — publishing to GHCR only"
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          case "$PRODUCT_IMAGE" in
+            */*/*) : ;;
+            *) echo "::error::PRODUCT_IMAGE must be <registry>/<path>/<repository>, got $PRODUCT_IMAGE"; exit 1 ;;
+          esac
+          echo "server=${PRODUCT_IMAGE%%/*}" >> "$GITHUB_OUTPUT"
+          echo "configured=true" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@v3
+        if: steps.product.outputs.configured == 'true'
+        with:
+          registry: ${{ steps.product.outputs.server }}
+          username: ${{ secrets.ACR_PUSH_USERNAME }}
+          password: ${{ secrets.ACR_PUSH_PASSWORD }}
+
+      - name: the same image, in the product's registry
+        if: steps.product.outputs.configured == 'true'
+        env:
+          PRODUCT_IMAGE: ${{ vars.PRODUCT_IMAGE }}
+          VERSION: ${{ steps.version.outputs.version }}
+          MOVE_LATEST: ${{ github.event_name == 'push' }}
+        run: |
+          ghcr="ghcr.io/${{ github.repository }}"
+          docker tag "$ghcr:$VERSION" "$PRODUCT_IMAGE:$VERSION"
+          docker push "$PRODUCT_IMAGE:$VERSION"
+          if [ "$MOVE_LATEST" = "true" ]; then
+            docker tag "$ghcr:latest" "$PRODUCT_IMAGE:latest"
+            docker push "$PRODUCT_IMAGE:latest"
+          fi
 
       - name: a use built on it is still an actor
         # BEFORE the image is something anyone can pin — the same reason the grounding probe runs

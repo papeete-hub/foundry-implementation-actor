@@ -88,6 +88,11 @@ Beside them, two folders of committed contract, both shipped in the wheel:
 - **The clone is full, never `--depth 1`.** `papeete_version.compute()` runs `git describe --tags`
   against it and needs the matching tag's commit reachable.
 - **The generated `CLAUDE.md` appends** to one the repo already commits. Never overwrite.
+- **The image is one build in two registries.** GHCR is where this package publishes; a product's
+  own registry is where the in-cluster builder that resolves a use's `FROM` line can actually
+  authenticate (ADR-FIA-0006). `release.yml` `docker tag`s one build into both so they hold one
+  digest — never add a second `docker build`, and never hardcode a registry: the product names
+  itself in `vars.PRODUCT_IMAGE`, the same reason `src/` names no capability.
 - **Never set `ANTHROPIC_API_KEY` in a container running this.** In `claude -p` non-interactive
   mode an API key in the environment is always preferred over `CLAUDE_CODE_OAUTH_TOKEN`, silently
   routing every session through metered billing. There is no warning; the only symptom is the bill.
@@ -104,7 +109,10 @@ similar weight rather than only writing it into code comments.
 ## Releasing
 
 Tag-triggered (`v*`) via `.github/workflows/release.yml`, publishing to PyPI through Trusted
-Publishing (OIDC) — no stored token. The release job builds the wheel, installs it into a throwaway
-venv, and renders a `CLAUDE.md` from a fixture sidecar, asserting its `@`-imports resolve, before
-publishing. `ci.yml` runs the suite plus two gates — *the wheel must carry its contract* and *the
-gate must run* — and reaches nothing outside its own checkout.
+Publishing (OIDC) — no stored token. The image goes to GHCR and, when `vars.PRODUCT_IMAGE` names
+one, to a product's own registry as well (ADR-FIA-0006). The workflow also accepts a manual run
+against an existing tag, to give an already-released version an image in a registry it missed;
+that run skips PyPI and does not move `latest`. The release job builds the wheel, installs it into
+a throwaway venv, and renders a `CLAUDE.md` from a fixture sidecar, asserting its `@`-imports
+resolve, before publishing. `ci.yml` runs the suite plus two gates — *the wheel must carry its
+contract* and *the gate must run* — and reaches nothing outside its own checkout.

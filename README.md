@@ -306,6 +306,25 @@ move, not a rewrite."*
 
 `adr/` records the decisions. Design rationale belongs there, not in commit messages.
 
+## Releasing, and which registry to pin
+
+A tag (`v*`) publishes two artifacts at one version — the wheel to PyPI, and the image to **two
+registries** holding the same digest (ADR-FIA-0006):
+
+| Registry | Pin it when |
+|---|---|
+| `ghcr.io/papeete-hub/foundry-implementation-actor` | you are writing a use's Dockerfile yourself, and build it with your own Docker |
+| a product's own registry, `vars.PRODUCT_IMAGE` | the use is built **in-cluster**, by a builder whose one registry credential is that product's |
+
+The second exists because `buildctl` resolves a `FROM` line client-side against the single registry
+credential it was handed — so a use built by the cluster's shared builder can only reach the
+product's own registry, whatever the README says. The push is skipped, with a notice, when
+`vars.PRODUCT_IMAGE` is unset.
+
+The workflow also accepts a manual run against an existing tag, to give an already-released version
+an image in a registry it missed. That run skips PyPI (which refuses a version it already holds)
+and does not move `latest` in either registry.
+
 ## Development
 
 ```bash

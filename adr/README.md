@@ -16,6 +16,7 @@ are named or placed (`ADR-ECO-*` in
 | [ADR-FIA-0003](./ADR-FIA-0003-the-dev-test-agreement-has-no-home-yet.md) | The dev↔test agreement has no home yet — and it is not this actor's to emit | Superseded by 0004 |
 | [ADR-FIA-0004](./ADR-FIA-0004-the-three-amigos-round.md) | The three amigos round — the tester proposes, this actor answers, a human breaks the tie | Accepted |
 | [ADR-FIA-0005](./ADR-FIA-0005-the-actor-ships-an-image.md) | The actor ships an image, and renders its own cards into it — a use is one sidecar | Proposed |
+| [ADR-FIA-0006](./ADR-FIA-0006-the-image-is-published-to-two-registries.md) | The image is published to two registries, and names neither in its source | Proposed |
 
 ## Authoring
 
