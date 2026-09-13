@@ -11,7 +11,14 @@
 # The whole ref is one ARG, not just the tag: this repo's own CI builds the base image from the
 # checkout and points this line at it, which is how the example is proven to build against the
 # version being released rather than against the last one published.
-ARG ACTOR_IMAGE=ghcr.io/papeete-hub/foundry-implementation-actor:0.5.0
+#
+# The default names the product registry rather than GHCR for one reason: it is the copy a reader
+# can actually pull. The GHCR package is private, so an unauthenticated `docker build` here fails
+# with a 401 and the example teaches nothing. ACR is where the pull token, the node bypass and the
+# `acr-pull` Secret already point (ADR-FIA-0006 publishes the same digest to both). Override it if
+# you are somewhere else:
+#     docker build --build-arg ACTOR_IMAGE=ghcr.io/papeete-hub/foundry-implementation-actor:0.5.0 .
+ARG ACTOR_IMAGE=papeetefoundry.azurecr.io/foundry/foundry-implementation-actor:0.5.0
 FROM ${ACTOR_IMAGE}
 
 # THE KNOWLEDGE TOOLS THIS SIDECAR NAMES, and the one thing the base image deliberately does not

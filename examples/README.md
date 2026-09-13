@@ -172,6 +172,22 @@ This runs the real grounding path — fetch, write the envelopes into a clone, r
 `CLAUDE.md`, then check every `@`-import resolves. A session grounded in nothing looks exactly
 like a correctly grounded one, which is why this is a gate rather than a hope.
 
+**4. Build it — this one needs a credential.** The three above run offline; a `docker build` has to
+pull the base image, and both registries that carry it are private. The `ARG ACTOR_IMAGE` default
+names the product registry, so log into that one:
+
+```bash
+ACR_TF=../../papeete-platform/examples/acr-local     # wherever modules/acr was applied
+terraform -chdir="$ACR_TF" output -raw pull_password | docker login papeetefoundry.azurecr.io \
+  --username "$(terraform -chdir="$ACR_TF" output -raw pull_username)" --password-stdin
+
+docker build -t acme-wid-actor ACME.PARTS.CAP.SUP.007.WID-implementation
+docker run --rm acme-wid-actor foundry-implementation-actor lint /actor
+```
+
+The read-only pull token is enough — nothing here pushes. The last line is the interesting one: it
+lints the cards the image actually rendered, which is what a caller will be validated against.
+
 ---
 
 ## What a real request looks like
@@ -233,7 +249,8 @@ docker build -t my-actor . && docker run --rm my-actor foundry-implementation-ac
 ```
 
 The last one is the interesting one: it lints the cards the image actually rendered, which is what
-a caller will be validated against.
+a caller will be validated against. It needs the same registry login as step 4 above — or your own
+`--build-arg ACTOR_IMAGE=`, if you mirror the base image somewhere of your own.
 
 **Embedding it instead.** If you need your own base image, or the actor inside a larger process,
 install the wheel and wire four lines yourself (`assess-task` needs no entry — it is a query with
