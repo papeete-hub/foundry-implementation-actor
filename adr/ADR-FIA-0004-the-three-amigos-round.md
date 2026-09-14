@@ -124,9 +124,11 @@ tuning, and it is a constructor keyword.
 - **Expectation ids are worth more than this round.** Because each carries a stable `id`, a failing
   verdict can name agreed expectations instead of scraped pytest lines, and `remediation_context`
   can stop being free prose. Neither is done here.
-- **The other two halves are specified, not built.** The testing actor's `propose-acceptance` and
-  the orchestrating actor's round 0 live in instance repos that are not yet `foundry-*` packages.
-  The round belongs after that actor unpacks its payload and before its attempt loop begins.
+- **The other two halves are specified here and built elsewhere.** The testing actor's
+  `propose-acceptance` is `foundry-testing-actor` (ADR-FTA-0002), and the orchestrating actor's
+  round 0 is `foundry-task-orchestration-actor` (ADR-FTOA-0002), both extracted from their
+  instance repos the way ADR-FIA-0005 extracted this one. The round runs after that actor unpacks
+  its payload and before its attempt loop begins.
 - **Not decided here:** whether the agreed surface should also be committed somewhere durable
   rather than only passed between doors, and whether `definition_of_done` should eventually be
   absorbed into it rather than sitting beside it.
