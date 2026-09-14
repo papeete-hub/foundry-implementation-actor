@@ -17,8 +17,8 @@
 # with a 401 and the example teaches nothing. ACR is where the pull token, the node bypass and the
 # `acr-pull` Secret already point (ADR-FIA-0006 publishes the same digest to both). Override it if
 # you are somewhere else:
-#     docker build --build-arg ACTOR_IMAGE=ghcr.io/papeete-hub/foundry-implementation-actor:0.5.0 .
-ARG ACTOR_IMAGE=papeetefoundry.azurecr.io/foundry/foundry-implementation-actor:0.5.0
+#     docker build --build-arg ACTOR_IMAGE=ghcr.io/papeete-hub/foundry-implementation-actor:0.5.1 .
+ARG ACTOR_IMAGE=papeetefoundry.azurecr.io/foundry/foundry-implementation-actor:0.5.1
 FROM ${ACTOR_IMAGE}
 
 # THE KNOWLEDGE TOOLS THIS SIDECAR NAMES, and the one thing the base image deliberately does not

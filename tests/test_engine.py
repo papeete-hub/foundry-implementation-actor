@@ -7,6 +7,7 @@ hardcoded, and that no line it emits can exceed the budget Loki rejects outright
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -190,6 +191,18 @@ def test_the_answers_shape_is_the_cards_own_when_one_is_given(engine):
     assert "`feasible` (boolean)" in without
 
 
+def test_every_entry_is_keyed_by_the_expectation_it_is_about(engine):
+    """A live assess session answered commitments as prose strings ("E1: …", "E4/E5: …"), which
+    the orchestrating actor could not attach to anything. The card types the lists and no more,
+    so the shape is said in words — with a schema rendered and without."""
+    schema = {"properties": {"feasible": {"type": "boolean"}}, "required": ["feasible"]}
+    for prompt in (engine._assessment_prompt(PAYLOAD, schema),
+                   engine._assessment_prompt(PAYLOAD, None)):
+        assert '`{"id": "<expectation id>", "commitment":' in prompt
+        assert '`{"id": "<expectation id>", "reason":' in prompt
+        assert "never a bare string" in prompt
+
+
 def test_an_empty_surface_is_said_out_loud(engine):
     """A caller that proposed nothing gets asked what it expected, rather than a bare yes."""
     assert "empty" in engine._assessment_prompt(PAYLOAD, None)
@@ -265,6 +278,34 @@ def test_the_assess_session_is_given_no_tool_that_writes(assessed):
     assert "Write" not in ASSESS_TOOLS and "Edit" not in ASSESS_TOOLS
     assert "Bash" not in ASSESS_TOOLS
     assert IMPLEMENT_TOOLS != ASSESS_TOOLS
+
+
+FAKE_CLAUDE = """
+import json, sys
+open(sys.argv[0] + ".argv", "w").write(json.dumps(sys.argv[1:]))
+print(json.dumps({"type": "result", "subtype": "success", "is_error": False, "result": "done"}))
+"""
+
+
+def test_the_tool_list_removes_tools_rather_than_only_approving_some(config, tmp_path,
+                                                                    monkeypatch):
+    """`--allowedTools` only pre-approves what it names; every other built-in stays available,
+    and a live assess session reached for Bash through it. `--tools` is what takes the rest
+    away, so it has to carry the same list — and, being variadic, never sit last."""
+    script = tmp_path / "claude"
+    script.write_text(f"#!{sys.executable}\n{FAKE_CLAUDE}")
+    script.chmod(0o755)
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "gitconfig"))
+    engine = ClaudeCodeEngine(config, github_token="ghs_fake", claude_bin=str(script))
+
+    assert engine._invoke_claude(tmp_path, "system", "THE PROMPT",
+                                 allowed_tools=ASSESS_TOOLS) == "done"
+    argv = json.loads((tmp_path / "claude.argv").read_text())
+
+    assert argv[argv.index("--tools") + 1] == ASSESS_TOOLS
+    assert argv[argv.index("--allowedTools") + 1] == ASSESS_TOOLS
+    assert argv[-1] == "THE PROMPT"
+    assert argv[argv.index("--tools") + 2].startswith("--")
 
 
 def test_the_assess_session_gets_a_smaller_budget(assessed, engine):

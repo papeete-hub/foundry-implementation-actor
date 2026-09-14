@@ -69,6 +69,13 @@ with `Read,Glob,Grep` and no `Write`, `Edit` or `Bash`. **A door that cannot wri
 asked not to** — the same discipline as `handler.py`'s containment check standing behind the
 implement door's write boundary.
 
+*Amended in 0.5.1, after the first live run.* Up to 0.5.0 that list was passed only as
+`--allowedTools`, which PRE-APPROVES the tools it names and removes nothing: a live assess session
+ran Bash three times. The door was asked not to write after all. It is now also passed as
+`--tools`, which is what takes every other built-in out of the session, and a test pins both flags.
+The same run showed commitments coming back as prose strings ("E1: …", "E4/E5: …") that nothing
+could attach to an expectation, so the prompt now requires one `{id, commitment}` object per entry.
+
 **4. `acceptance_surface` is an OPTIONAL payload field on `implement-task`.** The door works
 exactly as before without it. The DoD is what the caller asked for; the surface is what dev and
 test agreed it means, and where the surface is more specific, it wins.

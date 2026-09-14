@@ -47,7 +47,7 @@ ground_in:
 and, beside it, a four-line Dockerfile:
 
 ```dockerfile
-FROM ghcr.io/papeete-hub/foundry-implementation-actor:0.5.0
+FROM ghcr.io/papeete-hub/foundry-implementation-actor:0.5.1
 RUN pip install --no-cache-dir kpack==2.0.1 kontract==0.1.0   # what this sidecar's ground_in names
 COPY actor-agentic-context.yaml /actor/
 RUN foundry-implementation-actor render-cards /actor && foundry-implementation-actor lint /actor
@@ -170,7 +170,9 @@ task does not determine this"* is a legitimate answer, and it is the most useful
 
 `assess-task` is a **query**, not an action — *"a promise to answer, from this actor's own state
 and nothing invented."* It clones read-only, grounds itself exactly as the implement door does, and
-is invoked with `Read,Glob,Grep` and no `Write`, `Edit` or `Bash`. A door that **cannot** write
+is invoked with `--tools Read,Glob,Grep`, so `Write`, `Edit` and `Bash` are absent from the session
+rather than merely unapproved (0.5.0 passed only `--allowedTools`, which removes nothing — see
+ADR-FIA-0004's amendment). A door that **cannot** write
 beats a door asked not to. It registers no handler either: with an engine and no handler,
 `Actor.receive()` returns the judged dict as the reply, and there is nothing to contain because
 nothing is produced.

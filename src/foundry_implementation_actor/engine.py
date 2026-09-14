@@ -569,6 +569,18 @@ class ClaudeCodeEngine:
                if schema else
                " with `feasible` (boolean), `objections` (one entry per expectation you cannot "
                "meet, each naming its `id`) and `commitments` (what you undertake to pin).")
+            # THE ENTRY SHAPE, said in words whether or not a schema was rendered above. The card
+            # types both lists as `list` and stops there, so a rendered schema says nothing about
+            # what goes inside — and a live session, left to choose, answered commitments as
+            # prose strings prefixed "E1: …", which the orchestrating actor cannot attach to the
+            # expectation they name. One object per entry, keyed by the expectation's own `id`.
+            + "\n\nWrite each entry as an object keyed by the expectation it is about:\n"
+            "- `objections`: `{\"id\": \"<expectation id>\", \"reason\": \"...\", "
+            "\"counter_proposal\": \"...\"}` (omit `counter_proposal` when you have none).\n"
+            "- `commitments`: `{\"id\": \"<expectation id>\", \"commitment\": \"<the exact "
+            "value you will pin, and where>\"}` — one entry per expectation, never several ids in "
+            "one entry and never a bare string. A commitment that concerns no single expectation "
+            "takes `\"id\": null`."
         )
         return "\n\n".join(sections)
 
@@ -595,9 +607,14 @@ class ClaudeCodeEngine:
             self.claude_bin, "--print", "--output-format", "stream-json", "--verbose",
             "--append-system-prompt", system,
             "--permission-mode", "acceptEdits",
-            # The assess door passes a list with no Write, Edit or Bash in it. That is the
+            # `--tools`, not only `--allowedTools`. The second merely PRE-APPROVES the tools it names;
+            # every other built-in stays available, and a live assess session was seen reaching
+            # for Bash through it. `--tools` is what removes the rest from the session, so a door
+            # passed a list with no Write, Edit or Bash in it genuinely has none. That is the
             # enforcement, not the prompt's own "you are reading only" — the same discipline as
             # handler.py's containment check standing behind the implement door's write boundary.
+            # Both are variadic: each is followed by another option, never by the prompt.
+            "--tools", allowed_tools,
             "--allowedTools", allowed_tools,
             "--max-turns", str(max_turns),
             situational_prompt,
