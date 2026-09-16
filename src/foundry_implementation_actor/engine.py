@@ -48,16 +48,9 @@ from papeete_actor_synchronous_messaging.engine import EngineError
 
 from . import correlation, grounding
 from .config import CapabilityConfig
-
-DEFAULT_CLONE_TIMEOUT_S = 120
-DEFAULT_SESSION_TIMEOUT_S = 1800
-DEFAULT_MAX_TURNS = 60
-
-# The assess door reads and answers; it never writes. Its budget is smaller than the implement
-# door's on every axis, and its tool list is the enforcement — a door that CANNOT write beats one
-# asked not to. See ADR-FIA-0004.
-DEFAULT_ASSESS_TIMEOUT_S = 600
-DEFAULT_ASSESS_MAX_TURNS = 15
+from .settings import (DEFAULT_ASSESS_MAX_TURNS, DEFAULT_ASSESS_TIMEOUT_S,
+                       DEFAULT_CLONE_TIMEOUT_S, DEFAULT_MAX_TURNS,
+                       DEFAULT_SESSION_TIMEOUT_S, ENV)
 
 IMPLEMENT_TOOLS = "Bash,Read,Edit,Write,Glob,Grep"
 ASSESS_TOOLS = "Read,Glob,Grep"
@@ -66,6 +59,13 @@ ASSESS_TOOLS = "Read,Glob,Grep"
 # is handed the id it must dispatch on (see `_door_from_prompt`).
 IMPLEMENT_DOOR = "implement-task"
 ASSESS_DOOR = "assess-task"
+
+# Which environment variable moves each door's budget. Keyed off `ENV` rather than spelled again,
+# so a run that says "raise MAX_TURNS" is naming the variable `Settings.from_env` actually reads.
+BUDGET_VARS = {
+    IMPLEMENT_DOOR: (ENV["max_turns"], ENV["session_timeout_s"]),
+    ASSESS_DOOR: (ENV["assess_max_turns"], ENV["assess_timeout_s"]),
+}
 
 
 # ── stream-json projection: keeping every emitted log line inside Loki's max_line_size ────────
@@ -275,7 +275,9 @@ class ClaudeCodeEngine:
         self.session_timeout = session_timeout
         self.max_turns = max_turns
         # Constructor kwargs, not sidecar fields: how long this actor's own doors may think is
-        # operational tuning, not something a capability declares about itself (ADR-FIA-0002).
+        # operational tuning, not something a capability declares about itself (ADR-FIA-0007).
+        # `serve` fills every one of them from the environment through `Settings.from_env()`; an
+        # embedder passes its own and never touches the environment.
         self.assess_timeout = assess_timeout
         self.assess_max_turns = assess_max_turns
         self._configure_git_credentials()
@@ -326,7 +328,8 @@ class ClaudeCodeEngine:
             situational_prompt = self._situational_prompt(payload)
             with correlation.stage("claude-session", branch=branch,
                                    max_turns=self.max_turns, timeout_s=self.session_timeout):
-                summary = self._invoke_claude(clone_dir, system, situational_prompt)
+                summary = self._invoke_claude(clone_dir, system, situational_prompt,
+                                              door=IMPLEMENT_DOOR)
         except BaseException:
             # Every failure path removes the clone. Success does not: the clone is handed off
             # live, and `handler.py` is what removes it once it has committed and pushed — or
@@ -368,8 +371,8 @@ class ClaudeCodeEngine:
                                    timeout_s=self.assess_timeout):
                 answer = self._invoke_claude(
                     clone_dir, self._assess_system(), self._assessment_prompt(payload, schema),
-                    allowed_tools=ASSESS_TOOLS, max_turns=self.assess_max_turns,
-                    timeout=self.assess_timeout,
+                    door=ASSESS_DOOR, allowed_tools=ASSESS_TOOLS,
+                    max_turns=self.assess_max_turns, timeout=self.assess_timeout,
                 )
         finally:
             _rmtree(clone_dir)
@@ -587,6 +590,7 @@ class ClaudeCodeEngine:
     # ── the judgement itself: a claude -p session against the checked-out clone ────────────
 
     def _invoke_claude(self, clone_dir: Path, system: str, situational_prompt: str, *,
+                       door: str = IMPLEMENT_DOOR,
                        allowed_tools: str = IMPLEMENT_TOOLS,
                        max_turns: int | None = None,
                        timeout: int | None = None) -> str:
@@ -603,6 +607,7 @@ class ClaudeCodeEngine:
         """
         max_turns = self.max_turns if max_turns is None else max_turns
         timeout = self.session_timeout if timeout is None else timeout
+        turns_var, timeout_var = BUDGET_VARS.get(door, BUDGET_VARS[IMPLEMENT_DOOR])
         cmd = [
             self.claude_bin, "--print", "--output-format", "stream-json", "--verbose",
             "--append-system-prompt", system,
@@ -669,7 +674,8 @@ class ClaudeCodeEngine:
 
             if timed_out.is_set():
                 raise EngineError(
-                    f"claude session for this task exceeded {timeout}s"
+                    f"{door} exceeded its {timeout}s session budget and was killed mid-work — "
+                    f"raise {timeout_var} on this actor's Deployment, or narrow the task"
                 )
             errfile.seek(0)
             stderr = errfile.read()
@@ -677,6 +683,21 @@ class ClaudeCodeEngine:
         if final is None:
             raise EngineError(
                 f"claude (rc={proc.returncode}) produced no result event: {stderr[-2000:]}"
+            )
+        if final.get("subtype") == "error_max_turns":
+            # The one failure an operator can actually act on, and the one that used to say
+            # least: a session cut off with the work half-done leaves a clone that is about to be
+            # removed and a transcript nobody is looking at, and `subtype=error_max_turns` named
+            # neither the budget, nor the door that hit it, nor the variable that moves it.
+            #
+            # `result` is usually empty here — the session was stopped, not finished — so it is
+            # quoted only when there is something in it.
+            said = (final.get("result") or "")[:2000]
+            raise EngineError(
+                f"{door} ran out of turns (max_turns={max_turns}) and was stopped mid-work, so "
+                f"nothing it produced is kept — raise {turns_var} on this actor's Deployment, or "
+                f"narrow the task."
+                + (f" Its last words: {said}" if said else "")
             )
         if final.get("is_error") or proc.returncode != 0:
             raise EngineError(

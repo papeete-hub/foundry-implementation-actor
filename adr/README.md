@@ -17,6 +17,7 @@ are named or placed (`ADR-ECO-*` in
 | [ADR-FIA-0004](./ADR-FIA-0004-the-three-amigos-round.md) | The three amigos round — the tester proposes, this actor answers, a human breaks the tie | Accepted |
 | [ADR-FIA-0005](./ADR-FIA-0005-the-actor-ships-an-image.md) | The actor ships an image, and renders its own cards into it — a use is one sidecar | Proposed |
 | [ADR-FIA-0006](./ADR-FIA-0006-the-image-is-published-to-two-registries.md) | The image is published to two registries, and names neither in its source | Proposed |
+| [ADR-FIA-0007](./ADR-FIA-0007-a-sessions-budget-is-an-environment-setting.md) | A session's budget is an environment setting — and a door that runs out says what to change | Accepted |
 
 ## Authoring
 

@@ -22,6 +22,7 @@ from . import conformance
 from .config import CapabilityConfig, ConfigError, lint, version
 from .instance import render_cards
 from .serve import DEFAULT_PORT, ServeError, serve
+from .settings import SettingsError
 
 _REGISTRY_PLACEHOLDER = "<registry>"
 
@@ -115,9 +116,13 @@ def _cmd_serve(args: argparse.Namespace) -> int:
     # No try/except around the boot itself. A misconfigured actor that starts anyway and refuses
     # every caller at the door is strictly worse than a pod that crash-loops with the reason on
     # stdout, which is what an uncaught ConfigError produces here.
+    #
+    # `SettingsError` is the same kind of thing one env var over — `MAX_TURNS=ninety` is a
+    # misconfiguration an operator has just made and is watching for, and one line naming the
+    # variable reads better in `kubectl logs` than the traceback under it.
     try:
         serve(Path(args.folder), port=args.port)
-    except (ConfigError, ServeError) as e:
+    except (ConfigError, ServeError, SettingsError) as e:
         print(f"  FAIL {e}", file=sys.stderr)
         return 2
     return 0

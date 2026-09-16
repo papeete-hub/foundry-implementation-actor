@@ -14,8 +14,8 @@ import pytest
 from papeete_actor_synchronous_messaging.engine import Engine, EngineError
 
 from foundry_implementation_actor.engine import (
-    ASSESS_TOOLS, IMPLEMENT_TOOLS, LINE_BUDGET, ClaudeCodeEngine, _door_from_prompt,
-    _extract_json, _line, _payload_from_prompt, _project,
+    ASSESS_DOOR, ASSESS_TOOLS, IMPLEMENT_DOOR, IMPLEMENT_TOOLS, LINE_BUDGET, ClaudeCodeEngine,
+    _door_from_prompt, _extract_json, _line, _payload_from_prompt, _project,
 )
 
 PAYLOAD = {
@@ -306,6 +306,92 @@ def test_the_tool_list_removes_tools_rather_than_only_approving_some(config, tmp
     assert argv[argv.index("--allowedTools") + 1] == ASSESS_TOOLS
     assert argv[-1] == "THE PROMPT"
     assert argv[argv.index("--tools") + 2].startswith("--")
+
+
+# ── a budget that ran out says what to change ───────────────────────────────────────────────
+
+# `--max-turns` was reached: the CLI still emits a result event, with this subtype and no result
+# text worth reading. The whole point of the branch under test is that the failure has to say
+# something the event itself does not.
+FAKE_OUT_OF_TURNS = """
+import json, sys
+print(json.dumps({"type": "result", "subtype": "error_max_turns", "is_error": True,
+                  "result": "", "num_turns": 60}))
+sys.exit(1)
+"""
+
+FAKE_HANGS = """
+import time
+time.sleep(30)
+"""
+
+
+def _fake_claude(tmp_path, body):
+    script = tmp_path / "claude"
+    script.write_text(f"#!{sys.executable}\n{body}")
+    script.chmod(0o755)
+    return script
+
+
+@pytest.fixture
+def budget_engine(config, tmp_path, monkeypatch):
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "gitconfig"))
+
+    def _build(body):
+        return ClaudeCodeEngine(config, github_token="ghs_fake",
+                                claude_bin=str(_fake_claude(tmp_path, body)))
+    return _build
+
+
+def test_running_out_of_turns_names_the_limit_the_door_and_the_variable(budget_engine, tmp_path):
+    """The failure this whole change exists for. A live run died at `error_max_turns` with the fix
+    written but not committed, and `claude session failed (subtype=error_max_turns):` said neither
+    what the limit was, nor which door hit it, nor what an operator could do about it."""
+    engine = budget_engine(FAKE_OUT_OF_TURNS)
+    with pytest.raises(EngineError) as excinfo:
+        engine._invoke_claude(tmp_path, "system", "prompt", door=IMPLEMENT_DOOR)
+    message = str(excinfo.value)
+    assert "implement-task" in message
+    assert f"max_turns={engine.max_turns}" in message
+    assert "MAX_TURNS" in message
+    # ...and it says what was lost, because the clone is removed on this path.
+    assert "nothing it produced is kept" in message
+    # `result` is empty on this subtype, and an empty quotation is noise.
+    assert "last words" not in message
+
+
+def test_the_assess_door_names_its_own_variable_not_the_implement_one(budget_engine, tmp_path):
+    """Two doors, two budgets. An operator told to raise `MAX_TURNS` for an assess session that
+    ran out would move the wrong number and see no change."""
+    engine = budget_engine(FAKE_OUT_OF_TURNS)
+    with pytest.raises(EngineError) as excinfo:
+        engine._invoke_claude(tmp_path, "system", "prompt", door=ASSESS_DOOR,
+                              allowed_tools=ASSESS_TOOLS, max_turns=engine.assess_max_turns,
+                              timeout=engine.assess_timeout)
+    message = str(excinfo.value)
+    assert "assess-task" in message
+    assert f"max_turns={engine.assess_max_turns}" in message
+    assert "raise ASSESS_MAX_TURNS" in message
+    # ...and not the implement door's, which is a substring of it — hence the whole remedy phrase.
+    assert "raise MAX_TURNS" not in message
+
+
+def test_a_timeout_names_its_own_variable_too(budget_engine, tmp_path):
+    engine = budget_engine(FAKE_HANGS)
+    with pytest.raises(EngineError) as excinfo:
+        engine._invoke_claude(tmp_path, "system", "prompt", door=IMPLEMENT_DOOR, timeout=1)
+    message = str(excinfo.value)
+    assert "implement-task" in message
+    assert "1s" in message
+    assert "SESSION_TIMEOUT_S" in message
+
+
+def test_another_session_failure_is_left_alone(budget_engine, tmp_path):
+    """Only the out-of-budget paths gained a remedy. A session that failed for its own reasons
+    still reports the subtype and what it said — inventing a remedy for those would be worse."""
+    engine = budget_engine(FAKE_OUT_OF_TURNS.replace("error_max_turns", "error_during_execution"))
+    with pytest.raises(EngineError, match="error_during_execution"):
+        engine._invoke_claude(tmp_path, "system", "prompt")
 
 
 def test_the_assess_session_gets_a_smaller_budget(assessed, engine):

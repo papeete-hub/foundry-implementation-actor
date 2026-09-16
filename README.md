@@ -264,6 +264,31 @@ Publishing additionally needs `IMAGE_REGISTRY` and `BUILDKIT_HOST`. There is no 
 no docker socket anywhere in this design — `buildctl` is a client, which is why an actor running
 this can be an ordinary Pod.
 
+## What a session may spend
+
+Environment, read once at boot by `serve`; constructor keywords on `Settings` for an embedder. The
+budget is **not** a sidecar field: a capability declares what it is, not how long its actor may
+think (ADR-FIA-0007).
+
+| variable | default | what it costs to raise |
+|---|---|---|
+| `MAX_TURNS` | `60` | `implement-task`'s turns. A turn is a model call plus a tool call; raising it buys a slower-to-navigate repo more room, and buys a session that has lost the plot more room to keep losing it |
+| `SESSION_TIMEOUT_S` | `1800` | `implement-task`'s wall clock. The caller's own door timeout has to exceed it, or a slow success arrives as "did not answer" |
+| `ASSESS_MAX_TURNS` | `15` | `assess-task`'s turns. It reads and answers; it cannot write |
+| `ASSESS_TIMEOUT_S` | `600` | `assess-task`'s wall clock. Round 0 blocks on it, before anything is built |
+| `CLONE_TIMEOUT_S` | `120` | the full clone, per door call |
+| `FETCH_TIMEOUT_S` | `120` | each `ground_in` fetch, per door call |
+
+**The defaults have not moved** since these became reachable; they are what every use was already
+running. A value that is not a positive integer is refused at boot, naming itself, rather than
+silently falling back — so a raised budget that was misspelt crash-loops with the reason on stdout
+instead of changing nothing. The four session knobs are on the `actor-started` record too, so a run
+that ran out of budget can be read against the budget it actually had.
+
+A door that runs out says so in those terms: `implement-task ran out of turns (max_turns=60) and
+was stopped mid-work, so nothing it produced is kept — raise MAX_TURNS on this actor's Deployment,
+or narrow the task.`
+
 ## CLI
 
 ```bash

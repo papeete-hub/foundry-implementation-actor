@@ -15,6 +15,10 @@ Wiring one up is four lines:
                             engines={config.engine: ClaudeCodeEngine(config)},
                             actions={"implement-task": make_implement_task(config)})
 
+`Settings` carries how much a session may spend — turns and seconds, per door. `serve` reads it
+from the environment; the four lines above take the defaults, and an embedder passes
+`**Settings(...).engine_kwargs()` to choose its own (ADR-FIA-0007).
+
 `correlation` is exported too — an entrypoint installs its filter on the root logger's handlers
 after configuring observability, so every record the process emits carries this request's ids.
 
@@ -28,6 +32,7 @@ from .engine import ClaudeCodeEngine
 from .handler import HandlerError, make_implement_task
 from .instance import render_cards
 from .serve import ServeError, serve
+from .settings import Settings, SettingsError
 from . import conformance, correlation, grounding, instance
 
 __all__ = [
@@ -48,5 +53,7 @@ __all__ = [
     "render_cards",
     "serve",
     "ServeError",
+    "Settings",
+    "SettingsError",
     "version",
 ]
