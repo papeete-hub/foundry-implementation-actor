@@ -48,6 +48,24 @@ def test_show_expands_the_fetch_argv(config, tmp_path, capsys):
     assert "{capability}" not in out
 
 
+def test_serve_refuses_a_budget_it_cannot_read(config, tmp_path, monkeypatch, capsys):
+    """A misspelt budget is a misconfiguration an operator has just made and is watching for. One
+    line naming the variable reads better in a pod's log than the traceback under it."""
+    import importlib
+    # `foundry_implementation_actor.serve` is the FUNCTION on the package — the module is only
+    # reachable by name.
+    serve_module = importlib.import_module("foundry_implementation_actor.serve")
+    # The wire half is an extra this suite does not install, and it is imported before anything
+    # this test is about. Stand it down; the boot then reaches the budget, which is the point.
+    monkeypatch.setattr(serve_module, "_imports",
+                        lambda: (object(), object(), lambda: None))
+    monkeypatch.setenv("MAX_TURNS", "ninety")
+    assert cli.main(["serve", str(tmp_path)]) == 2
+    err = capsys.readouterr().err
+    assert "FAIL" in err
+    assert "MAX_TURNS" in err and "ninety" in err
+
+
 def test_the_cli_needs_a_subcommand(capsys):
     with pytest.raises(SystemExit):
         cli.main([])

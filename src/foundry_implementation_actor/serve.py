@@ -26,6 +26,7 @@ from .config import CapabilityConfig
 from .engine import ClaudeCodeEngine
 from .handler import make_implement_task
 from .instance import CARD_FILES, render_cards
+from .settings import Settings
 
 DEFAULT_PORT = 8080
 
@@ -104,6 +105,9 @@ def serve(folder: str | Path = ".", port: int | None = None) -> None:
     folder = Path(folder)
     # The sidecar is the only thing in that folder this package did not put there.
     config = CapabilityConfig.load(folder)
+    # Read before the mailbox is built: a misspelt budget is a crash-loop with the reason on
+    # stdout, not a surprise at the first door call.
+    settings = Settings.from_env()
     cards = _cards_for(config, folder)
 
     # PORT, not a hardcoded default: an env var is how an environment moves it without editing an
@@ -116,7 +120,9 @@ def serve(folder: str | Path = ".", port: int | None = None) -> None:
         # One engine instance serves every door that names one: `Actor.judge()` hands it the door
         # id and it dispatches on that. The key comes from the sidecar rather than a literal here,
         # so a use whose sidecar names another engine is caught by its own card.
-        engines={config.engine: ClaudeCodeEngine(config)},
+        # ...constructed with the budget the environment set, so `serve` is no longer the place
+        # that decides how long a session may think (ADR-FIA-0007).
+        engines={config.engine: ClaudeCodeEngine(config, **settings.engine_kwargs())},
         # `assess-task` needs no entry: it is a query with an engine and no handler, so the
         # engine's own judgement is the reply and there is no deterministic half to contain.
         actions={"implement-task": make_implement_task(config)},
@@ -124,6 +130,13 @@ def serve(folder: str | Path = ".", port: int | None = None) -> None:
     # An `event` record rather than a `print`: a restart in the middle of a run is one of the most
     # explanatory things a pipeline panel can show, and `print` reaches only the container's own
     # stdout — never the OTLP handler, so never the log backend.
+    # The budget is on this record because a run that ran out of it has to be diagnosable from
+    # the log alone: "60 turns" in the failure means nothing unless the boot line says whether 60
+    # was what this Deployment asked for.
     correlation.event("actor-started", actor=actor.name, port=port, capability=config.capability,
-                      cards=str(cards))
+                      cards=str(cards),
+                      max_turns=settings.max_turns,
+                      session_timeout_s=settings.session_timeout_s,
+                      assess_max_turns=settings.assess_max_turns,
+                      assess_timeout_s=settings.assess_timeout_s)
     mailbox.serve_forever()

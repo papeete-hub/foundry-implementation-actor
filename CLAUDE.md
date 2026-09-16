@@ -29,7 +29,7 @@ There is no separate lint/format command configured in this repo.
 
 ## Architecture
 
-Seven modules under `src/foundry_implementation_actor/`:
+Eight modules under `src/foundry_implementation_actor/`:
 
 - **`config.py`** — `CapabilityConfig`. The heart. Loads the sidecar and derives **every**
   rendering of the capability id from two declared fields (`capability`, `source_repo`). Also
@@ -48,6 +48,10 @@ Seven modules under `src/foundry_implementation_actor/`:
   the derived wire contract only (door ids, each door's request/completion schema and engine).
   Prose and `actor.yaml`'s `name:` are deliberately not compared — a use should name its own
   capability. `lint` runs it beside the sidecar gate.
+- **`settings.py`** — `Settings`. How much a session may spend: turns and seconds, per door, as
+  one `field → environment variable` table with a `from_env` that refuses a value it cannot read.
+  `serve` fills the engine from it (ADR-FIA-0007). The defaults live here, not in `engine.py`,
+  because `engine.py` names the variable when a budget runs out.
 - **`cli.py`** — argparse wiring only, no logic of its own.
 
 Beside them, two folders of committed contract, both shipped in the wheel:
@@ -93,6 +97,10 @@ Beside them, two folders of committed contract, both shipped in the wheel:
   authenticate (ADR-FIA-0006). `release.yml` `docker tag`s one build into both so they hold one
   digest — never add a second `docker build`, and never hardcode a registry: the product names
   itself in `vars.PRODUCT_IMAGE`, the same reason `src/` names no capability.
+- **A budget is an environment setting, and a door that runs out says what to change.** Turns and
+  timeouts are `Settings` fields with an `ENV` entry each, not constructor defaults `serve` never
+  passes (ADR-FIA-0007). Never add a knob without an entry in `ENV` and `ENGINE_KWARGS` — and never
+  put one in the sidecar: a capability declares what it is, not how long its actor may think.
 - **Never set `ANTHROPIC_API_KEY` in a container running this.** In `claude -p` non-interactive
   mode an API key in the environment is always preferred over `CLAUDE_CODE_OAUTH_TOKEN`, silently
   routing every session through metered billing. There is no warning; the only symptom is the bill.

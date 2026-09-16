@@ -97,6 +97,12 @@ ENV HOME=/home/actor \
 #   BUILDKIT_HOST, IMAGE_REGISTRY, DOCKER_CONFIG   where images are built, pushed, and the
 #                           credential buildctl resolves CLIENT-side before handing it to the
 #                           daemon (the daemon does not authenticate on a client's behalf).
+#
+# And, optionally, how much a session may spend: MAX_TURNS / SESSION_TIMEOUT_S (implement-task),
+# ASSESS_MAX_TURNS / ASSESS_TIMEOUT_S (assess-task), CLONE_TIMEOUT_S, FETCH_TIMEOUT_S. Deliberately
+# NOT given defaults here: `settings.py` holds them, so a use reads one number in one place, and an
+# ENV line in this image would be a second copy to keep in step (ADR-FIA-0007). A value that is not
+# a positive integer is refused at boot, naming itself.
 EXPOSE 8080
 
 # `serve`, not a copied-in app.py. Sixty lines of observability wiring used to live in every use's
