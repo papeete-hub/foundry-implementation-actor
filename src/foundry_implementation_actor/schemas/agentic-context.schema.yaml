@@ -76,7 +76,8 @@ fields:
     type: string
     doc: >-
       `<owner>/<repo>` of the repository this actor clones, writes to, and pushes a branch to.
-      The actor's own name and its git commit identity are derived from the repo half.
+      Where it works, not who it is: the actor's own name and its git commit identity are
+      `<capability>-implementation`, derived from `capability` and this package's own role.
 
   registry_repo:
     type: string

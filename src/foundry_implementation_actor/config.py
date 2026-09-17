@@ -12,7 +12,7 @@ They are now derivations of two fields. Nothing in this package spells a capabil
     capability   ACME.PARTS.CAP.SUP.007.WID                   ← the only id anyone writes
     source_repo  <owner>/ACME.PARTS.CAP.SUP.007.WID-impl       ← and the only repo
 
-    actor_name         <repo half of source_repo>
+    actor_name         {capability}-implementation
     actor_slug         same, lowercased, dots to hyphens
     git_author_name    actor_name
     git_author_email   {actor_slug}@users.noreply.github.com
@@ -20,6 +20,15 @@ They are now derivations of two fields. Nothing in this package spells a capabil
     capability_path    the id lowercased, split AT its `cap` segment: head / tail
     image_name(c)      {capability lowercased}-{c}
     image_ref(r, c, v) {r}/{capability_path}/{c}:{v}
+
+IDENTITY IS `capability` + ROLE, NOT THE REPO HALF. `actor_name` used to be whatever came after
+the `/` in `source_repo`, which reads as a derivation but is really an assumption: that one
+repository holds exactly one actor. Every sidecar in existence satisfies
+`source_repo == "<owner>/" + capability + "-" + ROLE`, so deriving the name from the two facts it
+was always shorthand for produces the identical string — and it keeps producing the right one when
+a capability's three actors come to share a repository, where the repo half would name all three
+the same thing. `source_repo` is unchanged and still required: it is where this actor clones from
+and pushes to, which is a different question from who it is.
 
 THE IMAGE REF IS A THREE-WAY CONTRACT. The testing actor recomputes the identical string and the
 orchestration actor parses it back apart. `image_ref` must therefore stay byte-identical to what
@@ -52,6 +61,10 @@ _CARDS_PATH = Path(__file__).resolve().parent / "cards"
 # because the path position already says it — every other token of the id survives, across
 # segments rather than concatenated.
 _CAPABILITY_SEGMENT = "cap"
+
+# The role this package plays for the capability it serves. Half of this actor's identity — see
+# `CapabilityConfig.actor_name` — and the half that is a property of the package, not of the use.
+ROLE = "implementation"
 
 # What an unsubstituted placeholder looks like: a bare lowercase word in braces, and nothing else.
 # Narrow on purpose — see `CapabilityConfig.expand`.
@@ -187,9 +200,17 @@ class CapabilityConfig:
         ground_in = tuple(_grounding(entry, source, i)
                           for i, entry in enumerate(raw["ground_in"] or ()))
 
+        source_repo = str(raw["source_repo"])
+        owner, _, repo = source_repo.partition("/")
+        if not owner or not repo:
+            # `actor_name` used to be the repo half and validated this shape on the way past. It
+            # is derived from `capability` now, so the field every clone and push URL is built
+            # from needs checking in its own right rather than by a side effect.
+            raise ConfigError(f"{source}: source_repo '{source_repo}' is not '<owner>/<repo>'")
+
         config = cls(
             capability=str(raw["capability"]),
-            source_repo=str(raw["source_repo"]),
+            source_repo=source_repo,
             registry_repo=str(raw["registry_repo"]),
             engine=str(raw["engine"]),
             components=components,
@@ -204,13 +225,13 @@ class CapabilityConfig:
 
     @property
     def actor_name(self) -> str:
-        """The repo half of `source_repo` — this actor's own name, and its git author name."""
-        owner, _, repo = self.source_repo.partition("/")
-        if not owner or not repo:
-            raise ConfigError(
-                f"source_repo '{self.source_repo}' is not '<owner>/<repo>'"
-            )
-        return repo
+        """`{capability}-{ROLE}` — this actor's own name, and its git author name.
+
+        Not the repo half of `source_repo`, which is the same string for every sidecar that
+        exists but stops being this actor's name alone the moment a capability's actors share a
+        repository. See this module's own docstring.
+        """
+        return f"{self.capability}-{ROLE}"
 
     @property
     def actor_slug(self) -> str:

@@ -205,3 +205,45 @@ def test_components_may_not_be_empty(sidecar_dict, write_sidecar):
     sidecar_dict["components"] = []
     with pytest.raises(ConfigError, match="empty"):
         CapabilityConfig.load(write_sidecar(sidecar_dict))
+
+
+# ── identity: capability + role, not the repo half ──────────────────────────────────────────
+
+def test_the_actor_name_is_exactly_what_the_repo_half_used_to_be(config):
+    """The no-op half of the change, pinned.
+
+    `actor_name` was `source_repo.partition("/")[2]`. It is `{capability}-{ROLE}` now. Every
+    sidecar that exists satisfies `source_repo == "<owner>/" + capability + "-" + ROLE`, so the
+    two derivations agree on all of them — which is what makes this releasable on its own, ahead
+    of any repository moving.
+    """
+    assert config.source_repo == f"acme-lab/{config.capability}-implementation"
+    assert config.actor_name == config.source_repo.partition("/")[2]
+    assert config.actor_name == "ACME.PARTS.CAP.SUP.007.WID-implementation"
+
+
+def test_the_actor_name_no_longer_follows_the_repository(sidecar_dict, write_sidecar):
+    """The point of the change: three actors in one repository still have three names.
+
+    A consolidated capability repository is named for the capability alone, with no role suffix,
+    because all three of its actors live in it. Under the old derivation this actor would have
+    been called `ACME.PARTS.CAP.SUP.007.WID` — and so would both of its siblings.
+    """
+    sidecar_dict["source_repo"] = "acme-lab/ACME.PARTS.CAP.SUP.007.WID"
+    config = CapabilityConfig.load(write_sidecar(sidecar_dict))
+    assert config.actor_name == "ACME.PARTS.CAP.SUP.007.WID-implementation"
+    assert config.git_author_name == config.actor_name
+    assert config.actor_slug == "acme-parts-cap-sup-007-wid-implementation"
+    assert config.clone_prefix("TASK-042") == \
+        "acme-parts-cap-sup-007-wid-implementation-TASK-042-"
+
+
+def test_a_malformed_source_repo_is_still_refused(sidecar_dict, write_sidecar):
+    """`actor_name` used to validate this shape on its way past, and nothing else did.
+
+    `source_repo` is still what every clone and push URL is built from, so a `source_repo` that
+    is not `<owner>/<repo>` has to keep failing at load rather than at the first push.
+    """
+    sidecar_dict["source_repo"] = "just-a-name"
+    with pytest.raises(ConfigError, match="<owner>/<repo>"):
+        CapabilityConfig.load(write_sidecar(sidecar_dict))
