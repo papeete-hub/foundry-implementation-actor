@@ -335,7 +335,7 @@ move, not a rewrite."*
 
 ## Releasing, and which registry to pin
 
-A tag (`v*`) publishes two artifacts at one version — the wheel to PyPI, and the image to **two
+A tag (`v*`) publishes two artifacts at one version — the wheel to the feed, and the image to **two
 registries** holding the same digest (ADR-FIA-0006):
 
 | Registry | Pin it when |
@@ -356,7 +356,7 @@ disagrees with the `pyproject.toml` beside it:
 gh workflow run release.yml --ref main -f tag=v0.5.0
 ```
 
-That run skips PyPI (which refuses a version it already holds) and does not move `latest` in either
+That run skips the feed (which refuses a version it already holds) and does not move `latest` in either
 registry.
 
 ## Development
